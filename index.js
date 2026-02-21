@@ -3,7 +3,10 @@ import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController, isFingerGun, createThumbTapDetector } from "./handCameraControl.js";
 import { initSceneContext, registerObject, getRegisteredAncestor, setSelectedName, tickAnimations } from "./sceneContext.js";
 import { initChatUI } from "./chatUI.js";
-import { createWindmill, createMountedKnight, createCastle, createVillage } from "./getBodies.js";
+import { createWindmill, createMountedKnight, createCastle, createVillage, GROUND_Y } from "./getBodies.js";
+import { EffectComposer } from "jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "jsm/postprocessing/UnrealBloomPass.js";
 
 // init three.js scene
 const w = window.innerWidth;
@@ -12,15 +15,22 @@ const scene = new THREE.Scene();
 // gradient sky
 const skyCanvas = document.createElement("canvas");
 skyCanvas.width = 2;
-skyCanvas.height = 256;
+skyCanvas.height = 512;
 const skyCtx = skyCanvas.getContext("2d");
-const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
-skyGrad.addColorStop(0, "#4a90d9");
-skyGrad.addColorStop(0.5, "#7eb8e8");
-skyGrad.addColorStop(1, "#b8d4f0");
+const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 512);
+skyGrad.addColorStop(0, "#0a0a2e");
+skyGrad.addColorStop(0.2, "#1a1040");
+skyGrad.addColorStop(0.4, "#4a2060");
+skyGrad.addColorStop(0.6, "#8b3a62");
+skyGrad.addColorStop(0.75, "#d4784a");
+skyGrad.addColorStop(0.88, "#e8a040");
+skyGrad.addColorStop(1, "#f0c870");
 skyCtx.fillStyle = skyGrad;
-skyCtx.fillRect(0, 0, 2, 256);
+skyCtx.fillRect(0, 0, 2, 512);
 scene.background = new THREE.CanvasTexture(skyCanvas);
+
+// atmospheric fog
+scene.fog = new THREE.FogExp2(0x2a1845, 0.012);
 
 const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 200);
 camera.position.z = 12;
@@ -28,23 +38,52 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(w, h);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.2;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
+// post-processing
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(w, h),
+  0.4,
+  0.6,
+  0.85
+);
+composer.addPass(bloomPass);
+
 // lighting
-const hemi = new THREE.HemisphereLight(0xb8d4f0, 0x8b6b3a, 0.4);
+const hemi = new THREE.HemisphereLight(0xc8e0f8, 0x6b8a3a, 0.6);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xfff5e6, 1.0);
+
+// main sun — warm directional key light
+const sun = new THREE.DirectionalLight(0xfff0d6, 1.4);
 sun.position.set(15, 25, 10);
 sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.near = 0.5;
 sun.shadow.camera.far = 80;
-sun.shadow.camera.left = sun.shadow.camera.bottom = -25;
-sun.shadow.camera.right = sun.shadow.camera.top = 25;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -30;
+sun.shadow.camera.right = sun.shadow.camera.top = 30;
+sun.shadow.bias = -0.001;
 scene.add(sun);
+
+// fill light — cool blue from opposite side to soften shadows
+const fill = new THREE.DirectionalLight(0x8ab4f8, 0.35);
+fill.position.set(-12, 10, -8);
+scene.add(fill);
+
+// rim/back light — subtle warm accent to separate objects from background
+const rim = new THREE.DirectionalLight(0xffe0a0, 0.25);
+rim.position.set(-5, 15, -15);
+scene.add(rim);
+
+// ambient bounce — very subtle warm uplighting to simulate ground bounce
+const bounce = new THREE.PointLight(0xd4a050, 0.3, 50);
+bounce.position.set(0, -3, 0);
+scene.add(bounce);
 
 // init video and MediaPipe
 const { video, handLandmarker } = await getVisionStuff();
@@ -176,6 +215,38 @@ knight.position.set(1.5, 0, 3.5);
 knight.rotation.y = 0.3;
 scene.add(knight);
 registerObject("knight", knight);
+
+// environment map for PBR reflections
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+pmremGenerator.compileEquirectangularShader();
+scene.environment = pmremGenerator.fromScene(scene, 0, 0.1, 100).texture;
+pmremGenerator.dispose();
+
+// floating magic particles
+const PARTICLE_COUNT = 200;
+const PARTICLE_AREA = 60;
+const PARTICLE_HEIGHT = 25;
+const particlePositions = new Float32Array(PARTICLE_COUNT * 3);
+const particleSpeeds = new Float32Array(PARTICLE_COUNT);
+for (let i = 0; i < PARTICLE_COUNT; i++) {
+  particlePositions[i * 3] = (Math.random() - 0.5) * PARTICLE_AREA;
+  particlePositions[i * 3 + 1] = GROUND_Y + Math.random() * PARTICLE_HEIGHT;
+  particlePositions[i * 3 + 2] = (Math.random() - 0.5) * PARTICLE_AREA;
+  particleSpeeds[i] = 0.2 + Math.random() * 0.5;
+}
+const particleGeo = new THREE.BufferGeometry();
+particleGeo.setAttribute("position", new THREE.BufferAttribute(particlePositions, 3));
+const particleMat = new THREE.PointsMaterial({
+  color: 0xffe8a0,
+  size: 0.15,
+  transparent: true,
+  opacity: 0.6,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  sizeAttenuation: true,
+});
+const particles = new THREE.Points(particleGeo, particleMat);
+scene.add(particles);
 
 // hand-driven camera controller
 const cameraController = createHandCameraController(camera);
@@ -347,9 +418,26 @@ function animate() {
     }
   }
 
-  tickAnimations(clock.getDelta());
+  const delta = clock.getDelta();
+  tickAnimations(delta);
   windmill.userData.blades.rotation.z += 0.02;
-  renderer.render(scene, camera);
+
+  // animate particles
+  const positions = particleGeo.attributes.position.array;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const i3 = i * 3;
+    positions[i3 + 1] += particleSpeeds[i] * delta;
+    positions[i3] += Math.sin(Date.now() * 0.001 + i) * 0.003;
+    positions[i3 + 2] += Math.cos(Date.now() * 0.0013 + i * 1.3) * 0.003;
+    if (positions[i3 + 1] > GROUND_Y + PARTICLE_HEIGHT) {
+      positions[i3] = (Math.random() - 0.5) * PARTICLE_AREA;
+      positions[i3 + 1] = GROUND_Y;
+      positions[i3 + 2] = (Math.random() - 0.5) * PARTICLE_AREA;
+    }
+  }
+  particleGeo.attributes.position.needsUpdate = true;
+
+  composer.render();
 }
 renderer.setAnimationLoop(animate);
 
@@ -357,4 +445,5 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
