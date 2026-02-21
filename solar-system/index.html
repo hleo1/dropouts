@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Solar System — Hand Tracked</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      #pip-container {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        width: 200px;
+        z-index: 10;
+        pointer-events: none;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+        overflow: hidden;
+      }
+      #webcam-pip {
+        width: 100%;
+        border-radius: 12px;
+        transform: scaleX(-1);
+        opacity: 0.85;
+        display: block;
+      }
+      #hand-dots {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        pointer-events: none;
+      }
+      #cursor {
+        position: fixed;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #ff00ff;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 20;
+        display: none;
+      }
+      #cursor.tapped {
+        background: rgba(255, 0, 255, 0.5);
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.175/build/three.module.js",
+          "jsm/": "https://cdn.jsdelivr.net/npm/three@0.175/examples/jsm/",
+          "mediapipe": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0",
+          "soniox-stt": "https://unpkg.com/@soniox/speech-to-text-web@1.4.0?module"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="cursor"></div>
+    <div id="pip-container">
+      <video id="webcam-pip" autoplay playsinline muted></video>
+      <canvas id="hand-dots"></canvas>
+    </div>
+    <script type="module" src="../solarSystem.js"></script>
+  </body>
+</html>
