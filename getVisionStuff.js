@@ -12,7 +12,7 @@ async function getVisionStuff() {
       delegate: "GPU",
     },
     runningMode: "VIDEO",
-    numHands: 1,
+    numHands: 2,
   });
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     try {
