@@ -39,7 +39,7 @@
         position: fixed;
         width: 20px;
         height: 20px;
-        border: 2px solid #00ff88;
+        border: 2px solid #ff00ff;
         border-radius: 50%;
         transform: translate(-50%, -50%);
         pointer-events: none;
@@ -47,7 +47,7 @@
         display: none;
       }
       #cursor.tapped {
-        background: rgba(0, 255, 136, 0.5);
+        background: rgba(255, 0, 255, 0.5);
       }
     </style>
     <script type="importmap">
@@ -55,7 +55,8 @@
         "imports": {
           "three": "https://cdn.jsdelivr.net/npm/three@0.175/build/three.module.js",
           "jsm/": "https://cdn.jsdelivr.net/npm/three@0.175/examples/jsm/",
-          "mediapipe": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0"
+          "mediapipe": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0",
+          "soniox-stt": "https://unpkg.com/@soniox/speech-to-text-web@1.4.0?module"
         }
       }
     </script>
