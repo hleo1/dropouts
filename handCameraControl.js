@@ -4,7 +4,10 @@ import * as THREE from "three";
 const ORBIT_SENSITIVITY_X = 3.0;   // theta (horizontal) sensitivity
 const ORBIT_SENSITIVITY_Y = 2.0;   // phi (vertical) sensitivity
 const TWO_HAND_ZOOM_SENSITIVITY = 8.0;
+const PAN_SENSITIVITY = 15.0;
 const SMOOTHING = 0.3;             // exponential smoothing (0 = no smoothing, 1 = frozen)
+const INERTIA_FRICTION = 0.92;     // per-frame velocity decay when coasting (0 = instant stop, 1 = forever)
+const INERTIA_CUTOFF = 0.0001;     // stop drifting below this velocity
 
 const PHI_MIN = 0.1;
 const PHI_MAX = Math.PI - 0.1;
@@ -83,9 +86,17 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   let prevWristX = null;
   let prevWristY = null;
   let prevHandDist = null;
+  let prevPanX = null;
+  let prevPanY = null;
 
   let smoothDx = 0;
   let smoothDy = 0;
+
+  // reusable vectors for pan math
+  const _forward = new THREE.Vector3();
+  const _right = new THREE.Vector3();
+  const _up = new THREE.Vector3();
+  const _worldUp = new THREE.Vector3(0, 1, 0);
 
   function updateCameraPosition() {
     camera.position.set(
@@ -99,43 +110,105 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   // set initial camera position
   updateCameraPosition();
 
-  function update(allLandmarks) {
+  // "brake" — hard stop, zero velocity (fists, selection mode)
+  // "coast" — no input, let inertia decay (hand left frame)
+  function update(allLandmarks, mode) {
+    // --- no hand input ---
     if (!allLandmarks || allLandmarks.length === 0) {
       prevWristX = null;
       prevWristY = null;
       prevHandDist = null;
+      prevPanX = null;
+      prevPanY = null;
+
+      if (mode === "brake") {
+        smoothDx = 0;
+        smoothDy = 0;
+      } else {
+        // coast: decay velocity
+        smoothDx *= INERTIA_FRICTION;
+        smoothDy *= INERTIA_FRICTION;
+        if (Math.abs(smoothDx) < INERTIA_CUTOFF) smoothDx = 0;
+        if (Math.abs(smoothDy) < INERTIA_CUTOFF) smoothDy = 0;
+
+        theta += smoothDx * ORBIT_SENSITIVITY_X;
+        phi += smoothDy * ORBIT_SENSITIVITY_Y;
+        phi = THREE.MathUtils.clamp(phi, PHI_MIN, PHI_MAX);
+      }
+
+      updateCameraPosition();
       return;
     }
 
-    // both fists → treat as no hands (full stop)
+    // both fists → brake
     const allFists = allLandmarks.every((lm) => isFist(lm));
     if (allFists) {
+      smoothDx = 0;
+      smoothDy = 0;
       prevWristX = null;
       prevWristY = null;
       prevHandDist = null;
+      prevPanX = null;
+      prevPanY = null;
+      updateCameraPosition();
       return;
     }
 
     if (allLandmarks.length >= 2) {
-      // --- TWO-HAND ZOOM mode ---
-      const wristA = allLandmarks[0][WRIST];
-      const wristB = allLandmarks[1][WRIST];
+      // classify each hand
+      const fistA = isFist(allLandmarks[0]);
+      const fistB = isFist(allLandmarks[1]);
 
-      const dx = wristA.x - wristB.x;
-      const dy = wristA.y - wristB.y;
-      const handDist = Math.sqrt(dx * dx + dy * dy);
+      if (fistA !== fistB) {
+        // --- ONE FIST + ONE OPEN = PAN mode ---
+        const openHand = fistA ? allLandmarks[1] : allLandmarks[0];
+        const wrist = openHand[WRIST];
 
-      if (prevHandDist !== null) {
-        const delta = handDist - prevHandDist;
-        // hands moving apart → zoom in (decrease radius)
-        radius -= delta * TWO_HAND_ZOOM_SENSITIVITY;
-        radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
+        if (prevPanX !== null && prevPanY !== null) {
+          const dx = wrist.x - prevPanX;
+          const dy = wrist.y - prevPanY;
+
+          // pan along camera's local right/up axes
+          camera.getWorldDirection(_forward);
+          _right.crossVectors(_forward, _worldUp).normalize();
+          _up.crossVectors(_right, _forward).normalize();
+
+          target.addScaledVector(_right, dx * PAN_SENSITIVITY);
+          target.addScaledVector(_up, -dy * PAN_SENSITIVITY);
+        }
+        prevPanX = wrist.x;
+        prevPanY = wrist.y;
+
+        // reset orbit/zoom tracking
+        smoothDx = 0;
+        smoothDy = 0;
+        prevWristX = null;
+        prevWristY = null;
+        prevHandDist = null;
+      } else {
+        // --- TWO-HAND ZOOM mode (both open) ---
+        const wristA = allLandmarks[0][WRIST];
+        const wristB = allLandmarks[1][WRIST];
+
+        const dx = wristA.x - wristB.x;
+        const dy = wristA.y - wristB.y;
+        const handDist = Math.sqrt(dx * dx + dy * dy);
+
+        if (prevHandDist !== null) {
+          const delta = handDist - prevHandDist;
+          radius -= delta * TWO_HAND_ZOOM_SENSITIVITY;
+          radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
+        }
+        prevHandDist = handDist;
+
+        // reset orbit/pan tracking
+        smoothDx = 0;
+        smoothDy = 0;
+        prevWristX = null;
+        prevWristY = null;
+        prevPanX = null;
+        prevPanY = null;
       }
-      prevHandDist = handDist;
-
-      // reset orbit tracking so we skip a jump when going back to one hand
-      prevWristX = null;
-      prevWristY = null;
     } else {
       // --- SINGLE-HAND ORBIT mode ---
       const wrist = allLandmarks[0][WRIST];
@@ -154,6 +227,8 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
       prevWristX = wrist.x;
       prevWristY = wrist.y;
       prevHandDist = null;
+      prevPanX = null;
+      prevPanY = null;
     }
 
     updateCameraPosition();
