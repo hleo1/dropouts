@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { getBlock } from "./getBodies.js";
-import getVisionStuff from "./getVisionStuff.js";
+import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController } from "./handCameraControl.js";
 
 // init three.js scene
@@ -18,12 +18,12 @@ document.body.appendChild(renderer.domElement);
 const { video, handLandmarker } = await getVisionStuff();
 
 // PIP webcam overlay
-const pipVideo = document.getElementById('webcam-pip');
+const pipVideo = document.getElementById("webcam-pip");
 pipVideo.srcObject = video.srcObject;
 
 // hand dots canvas (overlays the PIP video)
-const dotCanvas = document.getElementById('hand-dots');
-const dotCtx = dotCanvas.getContext('2d');
+const dotCanvas = document.getElementById("hand-dots");
+const dotCtx = dotCanvas.getContext("2d");
 
 // starfield for spatial orientation
 const starCount = 500;
@@ -32,7 +32,7 @@ for (let i = 0; i < starCount * 3; i++) {
   starPositions[i] = (Math.random() - 0.5) * 100;
 }
 const starGeo = new THREE.BufferGeometry();
-starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+starGeo.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
 const starMat = new THREE.PointsMaterial({ color: 0x888888, size: 0.15 });
 scene.add(new THREE.Points(starGeo, starMat));
 
@@ -51,35 +51,37 @@ for (let i = 0; i < numBlocks; i++) {
   scene.add(block.mesh);
 }
 
-function clearDotCanvas() {
+function drawAllHands(handResults) {
   dotCanvas.width = dotCanvas.clientWidth;
   dotCanvas.height = dotCanvas.clientHeight;
   dotCtx.clearRect(0, 0, dotCanvas.width, dotCanvas.height);
-}
 
-function drawHandDots(landmarks) {
-  landmarks.forEach((lm) => {
-    // landmarks are normalized 0-1; mirror X to match scaleX(-1) on the video
-    const x = (1 - lm.x) * dotCanvas.width;
-    const y = lm.y * dotCanvas.height;
-    dotCtx.beginPath();
-    dotCtx.arc(x, y, 3, 0, Math.PI * 2);
-    dotCtx.fillStyle = '#00ff88';
-    dotCtx.fill();
-  });
+  for (let i = 0; i < handResults.landmarks.length; i++) {
+    // MediaPipe labels from the camera's perspective, so "Left" = user's right hand
+    const label = handResults.handednesses[i][0].categoryName;
+    const color = label === "Left" ? "#00ff88" : "#ff8800";
+
+    for (const lm of handResults.landmarks[i]) {
+      const x = (1 - lm.x) * dotCanvas.width;
+      const y = lm.y * dotCanvas.height;
+      dotCtx.beginPath();
+      dotCtx.arc(x, y, 3, 0, Math.PI * 2);
+      dotCtx.fillStyle = color;
+      dotCtx.fill();
+    }
+  }
 }
 
 function animate() {
-  // hand-tracking → camera control + dots
   if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
     const handResults = handLandmarker.detectForVideo(video, Date.now());
 
-    clearDotCanvas();
     if (handResults.landmarks.length > 0) {
       cameraController.update(handResults.landmarks);
-      handResults.landmarks.forEach((lm) => drawHandDots(lm));
+      drawAllHands(handResults);
     } else {
       cameraController.update(null);
+      drawAllHands(handResults);
     }
   }
 
@@ -87,7 +89,7 @@ function animate() {
 }
 renderer.setAnimationLoop(animate);
 
-window.addEventListener('resize', () => {
+window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);

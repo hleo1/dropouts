@@ -25,4 +25,4 @@ async function getVisionStuff() {
   }
   return { video, handLandmarker };
 }
-export default getVisionStuff;
+export { getVisionStuff };
