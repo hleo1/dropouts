@@ -20,7 +20,7 @@ const FINGER_TIP_PIP = [
   [20, 18], // pinky
 ];
 
-function isFist(landmarks) {
+export function isFist(landmarks) {
   const wrist = landmarks[WRIST];
   // a finger is curled if its tip is closer to the wrist than its PIP joint
   let curledCount = 0;
@@ -33,6 +33,46 @@ function isFist(landmarks) {
   }
   // fist if at least 3 of 4 fingers are curled (forgiving for pinky)
   return curledCount >= 3;
+}
+
+// "finger gun" — index extended, middle/ring/pinky curled
+export function isFingerGun(landmarks) {
+  const wrist = landmarks[WRIST];
+  const indexTip = landmarks[8];
+  const indexPip = landmarks[6];
+  // index must be extended (tip further from wrist than PIP)
+  const indexTipDist = Math.hypot(indexTip.x - wrist.x, indexTip.y - wrist.y);
+  const indexPipDist = Math.hypot(indexPip.x - wrist.x, indexPip.y - wrist.y);
+  if (indexTipDist <= indexPipDist) return false;
+  // middle, ring, pinky must be curled
+  const curlPairs = [[12, 10], [16, 14], [20, 18]];
+  let curled = 0;
+  for (const [tipIdx, pipIdx] of curlPairs) {
+    const tip = landmarks[tipIdx];
+    const pip = landmarks[pipIdx];
+    if (Math.hypot(tip.x - wrist.x, tip.y - wrist.y) < Math.hypot(pip.x - wrist.x, pip.y - wrist.y)) curled++;
+  }
+  return curled >= 2;
+}
+
+// thumb tap — thumb tip close to index MCP (the "click")
+const THUMB_TAP_ENTER = 0.045;
+const THUMB_TAP_EXIT = 0.07;
+
+export function createThumbTapDetector() {
+  let wasTapping = false;
+  return function detect(landmarks) {
+    const thumbTip = landmarks[4];
+    const indexMcp = landmarks[5];
+    const dist = Math.hypot(thumbTip.x - indexMcp.x, thumbTip.y - indexMcp.y);
+    if (!wasTapping && dist < THUMB_TAP_ENTER) {
+      wasTapping = true;
+      return true; // just tapped
+    } else if (wasTapping && dist > THUMB_TAP_EXIT) {
+      wasTapping = false;
+    }
+    return false;
+  };
 }
 
 export function createHandCameraController(camera, target = new THREE.Vector3()) {
