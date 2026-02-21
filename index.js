@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { getBlock } from "./getBodies.js";
 import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController } from "./handCameraControl.js";
+import { initSceneContext, tickAnimations } from "./sceneContext.js";
+import { initChatUI } from "./chatUI.js";
 
 // init three.js scene
 const w = window.innerWidth;
@@ -74,6 +76,11 @@ scene.add(gridHelper);
 // hand-driven camera controller
 const cameraController = createHandCameraController(camera);
 
+// scene API for LLM agent
+initSceneContext(scene, camera);
+initChatUI();
+const clock = new THREE.Clock();
+
 // static blocks on the ground
 const numBlocks = 40;
 for (let i = 0; i < numBlocks; i++) {
@@ -115,6 +122,7 @@ function animate() {
     }
   }
 
+  tickAnimations(clock.getDelta());
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(animate);

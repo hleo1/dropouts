@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "npx serve .",
-    "dev": "npx serve . -p 3000"
+    "dev": "node proxy.mjs & npx serve . -p 3000",
+    "proxy": "node proxy.mjs"
   }
 }
