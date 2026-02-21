@@ -10,6 +10,10 @@ const SMOOTHING = 0.3;             // exponential smoothing (0 = no smoothing, 1
 const INERTIA_FRICTION = 0.92;     // velocity multiplier each frame (0.90 = fast stop, 0.97 = long glide)
 const INERTIA_STOP_THRESHOLD = 0.0001; // velocity below this is treated as zero
 
+// --- Globe spin (fast swipe) constants ---
+const GLOBE_SPIN_FRICTION = 0.97;          // much longer glide for fast swipes
+const FAST_SWIPE_THRESHOLD = 0.008;        // speed (in NDC/frame) above which we switch to globe spin
+
 const PHI_MIN = 0.1;
 const PHI_MAX = Math.PI - 0.1;
 const RADIUS_MIN = 2;
@@ -97,6 +101,7 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   let velTheta = 0;
   let velPhi = 0;
   let velRadius = 0;
+  let activeFriction = INERTIA_FRICTION; // switches based on swipe speed
 
   // Compute the maximum phi so the camera never dips below the ground.
   // Camera Y = target.y + radius * cos(phi)
@@ -144,9 +149,9 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
         radius += velRadius;
         radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
 
-        velTheta *= INERTIA_FRICTION;
-        velPhi *= INERTIA_FRICTION;
-        velRadius *= INERTIA_FRICTION;
+        velTheta *= activeFriction;
+        velPhi *= activeFriction;
+        velRadius *= activeFriction;
 
         // snap to zero when below threshold
         if (Math.abs(velTheta) <= INERTIA_STOP_THRESHOLD) velTheta = 0;
@@ -187,6 +192,7 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
         velRadius = radiusDelta;
         velTheta = 0;
         velPhi = 0;
+        activeFriction = INERTIA_FRICTION;
       }
       prevHandDist = handDist;
 
@@ -215,6 +221,10 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
         velTheta = dTheta;
         velPhi = dPhi;
         velRadius = 0;
+
+        // pick friction based on swipe speed — fast swipe = globe spin
+        const speed = Math.hypot(rawDx, rawDy);
+        activeFriction = speed > FAST_SWIPE_THRESHOLD ? GLOBE_SPIN_FRICTION : INERTIA_FRICTION;
       }
       prevWristX = wrist.x;
       prevWristY = wrist.y;
