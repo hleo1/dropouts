@@ -11,6 +11,7 @@ Watch the project video on [YouTube](https://youtu.be/9Bzmgf5Gpr0)
 - **One hand visible** — wrist movement orbits the camera (spherical coordinates)
 - **Two hands visible** — distance between wrists controls zoom
 - **Both fists** — camera freezes (full stop)
+- **Finger gun** — enter selection mode: a cursor tracks your index finger, thumb-tap to select/highlight blocks
 - Right hand renders green dots, left hand renders orange in the PIP overlay
 
 ## Dependencies

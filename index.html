@@ -35,6 +35,20 @@
         border-radius: 12px;
         pointer-events: none;
       }
+      #cursor {
+        position: fixed;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #00ff88;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        z-index: 20;
+        display: none;
+      }
+      #cursor.tapped {
+        background: rgba(0, 255, 136, 0.5);
+      }
     </style>
     <script type="importmap">
       {
@@ -47,6 +61,7 @@
     </script>
   </head>
   <body>
+    <div id="cursor"></div>
     <div id="pip-container">
       <video id="webcam-pip" autoplay playsinline muted></video>
       <canvas id="hand-dots"></canvas>

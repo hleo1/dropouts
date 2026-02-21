@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { getBlock } from "./getBodies.js";
 import { getVisionStuff } from "./getVisionStuff.js";
+import { createHandCameraController, isFingerGun, createThumbTapDetector } from "./handCameraControl.js";
 import { createHandCameraController } from "./handCameraControl.js";
 import { initSceneContext, tickAnimations } from "./sceneContext.js";
 import { initChatUI } from "./chatUI.js";
@@ -76,16 +77,37 @@ scene.add(gridHelper);
 // hand-driven camera controller
 const cameraController = createHandCameraController(camera);
 
+// cursor + block selection
+const cursorEl = document.getElementById("cursor");
+const raycaster = new THREE.Raycaster();
+const thumbTap = createThumbTapDetector();
+let selectedMesh = null;
+let selectedOriginalColor = null;
+const HIGHLIGHT_COLOR = 0xf0c040;
+
+// cursor smoothing
+const CURSOR_SMOOTHING = 0.35;
+let smoothCursorX = 0;
+let smoothCursorY = 0;
+let cursorInitialized = false;
+
+// finger-gun hysteresis — need several consecutive frames to enter/exit
+const FG_ENTER_FRAMES = 4;
+const FG_EXIT_FRAMES = 6;
+let fgConsecutive = 0;
+let inFingerGunMode = false;
 // scene API for LLM agent
 initSceneContext(scene, camera);
 initChatUI();
 const clock = new THREE.Clock();
 
 // static blocks on the ground
+const blockMeshes = [];
 const numBlocks = 40;
 for (let i = 0; i < numBlocks; i++) {
   const block = getBlock();
   scene.add(block.mesh);
+  blockMeshes.push(block.mesh);
 }
 
 function drawAllHands(handResults) {
@@ -94,7 +116,6 @@ function drawAllHands(handResults) {
   dotCtx.clearRect(0, 0, dotCanvas.width, dotCanvas.height);
 
   for (let i = 0; i < handResults.landmarks.length; i++) {
-    // MediaPipe labels from the camera's perspective, so "Left" = user's right hand
     const label = handResults.handednesses[i][0].categoryName;
     const color = label === "Left" ? "#00ff88" : "#ff8800";
 
@@ -113,11 +134,94 @@ function animate() {
   if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
     const handResults = handLandmarker.detectForVideo(video, Date.now());
 
+    let fingerGunHand = null;
+
     if (handResults.landmarks.length > 0) {
-      cameraController.update(handResults.landmarks);
+      // check if any hand is doing finger gun
+      for (const lm of handResults.landmarks) {
+        if (isFingerGun(lm)) {
+          fingerGunHand = lm;
+          break;
+        }
+      }
+
+      // finger-gun hysteresis — require consecutive frames to switch modes
+      if (fingerGunHand) {
+        if (!inFingerGunMode) {
+          fgConsecutive++;
+          if (fgConsecutive >= FG_ENTER_FRAMES) inFingerGunMode = true;
+        } else {
+          fgConsecutive = 0;
+        }
+      } else {
+        if (inFingerGunMode) {
+          fgConsecutive++;
+          if (fgConsecutive >= FG_EXIT_FRAMES) {
+            inFingerGunMode = false;
+            cursorInitialized = false;
+          }
+        } else {
+          fgConsecutive = 0;
+        }
+      }
+
+      if (inFingerGunMode && fingerGunHand) {
+        // --- SELECTION MODE ---
+        const indexTip = fingerGunHand[8];
+        const rawX = (1 - indexTip.x) * window.innerWidth;
+        const rawY = indexTip.y * window.innerHeight;
+
+        if (!cursorInitialized) {
+          smoothCursorX = rawX;
+          smoothCursorY = rawY;
+          cursorInitialized = true;
+        } else {
+          smoothCursorX += (rawX - smoothCursorX) * (1 - CURSOR_SMOOTHING);
+          smoothCursorY += (rawY - smoothCursorY) * (1 - CURSOR_SMOOTHING);
+        }
+
+        cursorEl.style.display = "block";
+        cursorEl.style.left = smoothCursorX + "px";
+        cursorEl.style.top = smoothCursorY + "px";
+
+        if (thumbTap(fingerGunHand)) {
+          const ndc = new THREE.Vector2(
+            (smoothCursorX / window.innerWidth) * 2 - 1,
+            -(smoothCursorY / window.innerHeight) * 2 + 1
+          );
+          raycaster.setFromCamera(ndc, camera);
+          const hits = raycaster.intersectObjects(blockMeshes);
+
+          if (selectedMesh) {
+            selectedMesh.material.color.set(selectedOriginalColor);
+            selectedMesh.material.emissive?.set(0x000000);
+          }
+
+          if (hits.length > 0) {
+            selectedMesh = hits[0].object;
+            selectedOriginalColor = selectedMesh.material.color.getHex();
+            selectedMesh.material.color.set(HIGHLIGHT_COLOR);
+            cursorEl.classList.add("tapped");
+            setTimeout(() => cursorEl.classList.remove("tapped"), 150);
+          } else {
+            selectedMesh = null;
+            selectedOriginalColor = null;
+          }
+        }
+
+        cameraController.update(null);
+      } else {
+        cursorEl.style.display = "none";
+        cameraController.update(handResults.landmarks);
+      }
+
       drawAllHands(handResults);
     } else {
+      cursorEl.style.display = "none";
       cameraController.update(null);
+      fgConsecutive = 0;
+      inFingerGunMode = false;
+      cursorInitialized = false;
       drawAllHands(handResults);
     }
   }
