@@ -1,15 +1,15 @@
 import * as THREE from "three";
-import { getBody, getCollider } from "./getBodies.js";
-import RAPIER from 'rapier';
+import { getBlock } from "./getBodies.js";
 import getVisionStuff from "./getVisionStuff.js";
+import { createHandCameraController } from "./handCameraControl.js";
 
 // init three.js scene
 const w = window.innerWidth;
 const h = window.innerHeight;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
-const camera = new THREE.PerspectiveCamera(75, w / h, 1, 1000);
-camera.position.z = 5;
+scene.background = new THREE.Color(0x0a0a1a);
+const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 200);
+camera.position.z = 12;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(w, h);
 document.body.appendChild(renderer.domElement);
@@ -17,84 +17,73 @@ document.body.appendChild(renderer.domElement);
 // init video and MediaPipe
 const { video, handLandmarker } = await getVisionStuff();
 
-// Video Mesh
-const texture = new THREE.VideoTexture(video);
-texture.colorSpace = THREE.SRGBColorSpace;
-const geometry = new THREE.PlaneGeometry(1, 1);
-const material = new THREE.MeshBasicMaterial({
-  map: texture,
-  depthWrite: false,
-  side: THREE.DoubleSide,
-});
-const videomesh = new THREE.Mesh(geometry, material);
-videomesh.rotation.y = Math.PI;
-scene.add(videomesh);
+// PIP webcam overlay
+const pipVideo = document.getElementById('webcam-pip');
+pipVideo.srcObject = video.srcObject;
 
-// physics
-await RAPIER.init();
-const gravity = { x: 0.0, y: 0, z: 0.0 };
-const world = new RAPIER.World(gravity);
+// hand dots canvas (overlays the PIP video)
+const dotCanvas = document.getElementById('hand-dots');
+const dotCtx = dotCanvas.getContext('2d');
 
-const numBodies = 20;
-const bodies = [];
-for (let i = 0; i < numBodies; i++) {
-  const body = getBody(RAPIER, world);
-  bodies.push(body);
-  scene.add(body.mesh);
+// starfield for spatial orientation
+const starCount = 500;
+const starPositions = new Float32Array(starCount * 3);
+for (let i = 0; i < starCount * 3; i++) {
+  starPositions[i] = (Math.random() - 0.5) * 100;
+}
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+const starMat = new THREE.PointsMaterial({ color: 0x888888, size: 0.15 });
+scene.add(new THREE.Points(starGeo, starMat));
+
+// subtle ground grid
+const gridHelper = new THREE.GridHelper(60, 40, 0x222244, 0x222244);
+gridHelper.position.y = -5;
+scene.add(gridHelper);
+
+// hand-driven camera controller
+const cameraController = createHandCameraController(camera);
+
+// static blocks on the ground
+const numBlocks = 40;
+for (let i = 0; i < numBlocks; i++) {
+  const block = getBlock();
+  scene.add(block.mesh);
 }
 
-// hand-tracking colliders
-const colliderGroup = new THREE.Group();
-scene.add(colliderGroup);
-const numBalls = 21;
-for (let i = 0; i < numBalls; i++) {
-  const mesh = getCollider(RAPIER, world);
-  colliderGroup.add(mesh);
-}
+function drawHandDots(landmarks) {
+  dotCanvas.width = dotCanvas.clientWidth;
+  dotCanvas.height = dotCanvas.clientHeight;
+  dotCtx.clearRect(0, 0, dotCanvas.width, dotCanvas.height);
 
-// Rapier debug view
-const pointsGeo = new THREE.BufferGeometry();
-const pointsMat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true });
-const points = new THREE.Points(pointsGeo, pointsMat);
-scene.add(points);
+  if (!landmarks) return;
 
-function renderDebugView() {
-  const { vertices, colors } = world.debugRender();
-  pointsGeo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  pointsGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  landmarks.forEach((lm) => {
+    // landmarks are normalized 0-1; mirror X to match scaleX(-1) on the video
+    const x = (1 - lm.x) * dotCanvas.width;
+    const y = lm.y * dotCanvas.height;
+    dotCtx.beginPath();
+    dotCtx.arc(x, y, 3, 0, Math.PI * 2);
+    dotCtx.fillStyle = '#00ff88';
+    dotCtx.fill();
+  });
 }
 
 function animate() {
-  bodies.forEach(b => b.update());
-  world.step();
-  renderer.render(scene, camera);
-  // renderDebugView();
-
-  // computer vision / hand-tracking stuff
+  // hand-tracking → camera control + dots
   if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
     const handResults = handLandmarker.detectForVideo(video, Date.now());
 
     if (handResults.landmarks.length > 0) {
-      handResults.landmarks.forEach((landmarks) => {
-        landmarks.forEach((landmark, j) => {
-          const pos = {
-            x: (landmark.x * videomesh.scale.x - videomesh.scale.x * 0.5) * -1,
-            y: -landmark.y * videomesh.scale.y + videomesh.scale.y * 0.5,
-            z: landmark.z,
-          };
-          const mesh = colliderGroup.children[j];
-          mesh.userData.update(pos);
-        });
-      });
+      cameraController.update(handResults.landmarks[0]);
+      drawHandDots(handResults.landmarks[0]);
     } else {
-      for (let i = 0; i < numBalls; i++) {
-        const mesh = colliderGroup.children[i];
-        mesh.position.set(0, 0, 10);
-      }
+      cameraController.update(null);
+      drawHandDots(null);
     }
   }
-  videomesh.scale.x = video.videoWidth * 0.016;
-  videomesh.scale.y = video.videoHeight * 0.016;
+
+  renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(animate);
 

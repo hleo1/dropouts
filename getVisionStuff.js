@@ -15,15 +15,13 @@ async function getVisionStuff() {
     numHands: 1,
   });
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: "user" } })
-      .then(function (stream) {
-        video.srcObject = stream;
-        video.play();
-      })
-      .catch(function (error) {
-        console.error("🛑 Unable to access the camera/webcam.", error);
-      });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      video.srcObject = stream;
+      video.play();
+    } catch (error) {
+      console.error("Unable to access the camera/webcam.", error);
+    }
   }
   return { video, handLandmarker };
 }

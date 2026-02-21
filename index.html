@@ -8,19 +8,46 @@
       body {
         margin: 0;
       }
+      #pip-container {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        width: 200px;
+        z-index: 10;
+        pointer-events: none;
+      }
+      #webcam-pip {
+        width: 100%;
+        border-radius: 12px;
+        transform: scaleX(-1);
+        opacity: 0.85;
+        display: block;
+      }
+      #hand-dots {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 12px;
+        pointer-events: none;
+      }
     </style>
     <script type="importmap">
       {
 				"imports": {
 					"three": "https://cdn.jsdelivr.net/npm/three@0.175/build/three.module.js",
           "jsm/": "https://cdn.jsdelivr.net/npm/three@0.175/examples/jsm/",
-          "rapier": "https://cdn.skypack.dev/@dimforge/rapier3d-compat",
-          "mediapipe": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0"
+"mediapipe": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0"
         }
 			}
     </script>
   </head>
   <body>
+    <div id="pip-container">
+      <video id="webcam-pip" autoplay playsinline muted></video>
+      <canvas id="hand-dots"></canvas>
+    </div>
     <script type="module" src="index.js"></script>
   </body>
 </html>
