@@ -4,9 +4,8 @@ import * as THREE from "three";
 const ORBIT_SENSITIVITY_X = 3.0;   // theta (horizontal) sensitivity
 const ORBIT_SENSITIVITY_Y = 2.0;   // phi (vertical) sensitivity
 const TWO_HAND_ZOOM_SENSITIVITY = 8.0;
+const PAN_SENSITIVITY = 15.0;
 const SMOOTHING = 0.3;             // exponential smoothing (0 = no smoothing, 1 = frozen)
-
-// --- Inertia / momentum constants ---
 const INERTIA_FRICTION = 0.92;     // velocity multiplier each frame (0.90 = fast stop, 0.97 = long glide)
 const INERTIA_STOP_THRESHOLD = 0.0001; // velocity below this is treated as zero
 
@@ -89,6 +88,8 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   let prevWristX = null;
   let prevWristY = null;
   let prevHandDist = null;
+  let prevPanX = null;
+  let prevPanY = null;
 
   let smoothDx = 0;
   let smoothDy = 0;
@@ -98,20 +99,21 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   let velPhi = 0;
   let velRadius = 0;
 
+  // reusable vectors for pan math
+  const _forward = new THREE.Vector3();
+  const _right = new THREE.Vector3();
+  const _up = new THREE.Vector3();
+  const _worldUp = new THREE.Vector3(0, 1, 0);
+
   // Compute the maximum phi so the camera never dips below the ground.
-  // Camera Y = target.y + radius * cos(phi)
-  // We need: target.y + radius * cos(phi) >= GROUND_Y + CAMERA_FLOOR_OFFSET
-  // => cos(phi) >= (GROUND_Y + CAMERA_FLOOR_OFFSET - target.y) / radius
   function getPhiMax() {
     const minCosine = (GROUND_Y + CAMERA_FLOOR_OFFSET - target.y) / radius;
-    // clamp cosine to valid acos range, then take the lesser of the static and dynamic limit
-    if (minCosine <= -1) return PHI_MAX;          // ground is so far below it's unreachable
-    if (minCosine >= 1) return PHI_MIN;           // shouldn't happen, but safety
+    if (minCosine <= -1) return PHI_MAX;
+    if (minCosine >= 1) return PHI_MIN;
     return Math.min(PHI_MAX, Math.acos(minCosine));
   }
 
   function updateCameraPosition() {
-    // enforce floor limit before positioning
     phi = THREE.MathUtils.clamp(phi, PHI_MIN, getPhiMax());
 
     camera.position.set(
@@ -125,74 +127,125 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   // set initial camera position
   updateCameraPosition();
 
-  function update(allLandmarks) {
+  // "brake" — hard stop, zero velocity (fists, selection mode)
+  // "coast" — no input, let inertia decay (hand left frame)
+  function update(allLandmarks, mode) {
+    // --- no hand input ---
     if (!allLandmarks || allLandmarks.length === 0) {
       prevWristX = null;
       prevWristY = null;
       prevHandDist = null;
+      prevPanX = null;
+      prevPanY = null;
 
-      // --- INERTIA: coast with decaying velocity ---
-      const hasInertia =
-        Math.abs(velTheta) > INERTIA_STOP_THRESHOLD ||
-        Math.abs(velPhi) > INERTIA_STOP_THRESHOLD ||
-        Math.abs(velRadius) > INERTIA_STOP_THRESHOLD;
+      if (mode === "brake") {
+        velTheta = 0;
+        velPhi = 0;
+        velRadius = 0;
+      } else {
+        // coast: decay velocity
+        const hasInertia =
+          Math.abs(velTheta) > INERTIA_STOP_THRESHOLD ||
+          Math.abs(velPhi) > INERTIA_STOP_THRESHOLD ||
+          Math.abs(velRadius) > INERTIA_STOP_THRESHOLD;
 
-      if (hasInertia) {
-        theta += velTheta;
-        phi += velPhi;
-        phi = THREE.MathUtils.clamp(phi, PHI_MIN, getPhiMax());
-        radius += velRadius;
-        radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
+        if (hasInertia) {
+          theta += velTheta;
+          phi += velPhi;
+          phi = THREE.MathUtils.clamp(phi, PHI_MIN, getPhiMax());
+          radius += velRadius;
+          radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
 
-        velTheta *= INERTIA_FRICTION;
-        velPhi *= INERTIA_FRICTION;
-        velRadius *= INERTIA_FRICTION;
+          velTheta *= INERTIA_FRICTION;
+          velPhi *= INERTIA_FRICTION;
+          velRadius *= INERTIA_FRICTION;
 
-        // snap to zero when below threshold
-        if (Math.abs(velTheta) <= INERTIA_STOP_THRESHOLD) velTheta = 0;
-        if (Math.abs(velPhi) <= INERTIA_STOP_THRESHOLD) velPhi = 0;
-        if (Math.abs(velRadius) <= INERTIA_STOP_THRESHOLD) velRadius = 0;
-
-        updateCameraPosition();
+          if (Math.abs(velTheta) <= INERTIA_STOP_THRESHOLD) velTheta = 0;
+          if (Math.abs(velPhi) <= INERTIA_STOP_THRESHOLD) velPhi = 0;
+          if (Math.abs(velRadius) <= INERTIA_STOP_THRESHOLD) velRadius = 0;
+        }
       }
+
+      updateCameraPosition();
       return;
     }
 
-    // both fists → treat as no hands (allow inertia to start)
+    // both fists → allow inertia to carry on
     const allFists = allLandmarks.every((lm) => isFist(lm));
     if (allFists) {
       prevWristX = null;
       prevWristY = null;
       prevHandDist = null;
+      prevPanX = null;
+      prevPanY = null;
       // don't reset velocity — let inertia carry on next frame
       return;
     }
 
     if (allLandmarks.length >= 2) {
-      // --- TWO-HAND ZOOM mode ---
-      const wristA = allLandmarks[0][WRIST];
-      const wristB = allLandmarks[1][WRIST];
+      // classify each hand
+      const fistA = isFist(allLandmarks[0]);
+      const fistB = isFist(allLandmarks[1]);
 
-      const dx = wristA.x - wristB.x;
-      const dy = wristA.y - wristB.y;
-      const handDist = Math.sqrt(dx * dx + dy * dy);
+      if (fistA !== fistB) {
+        // --- ONE FIST + ONE OPEN = PAN mode ---
+        const openHand = fistA ? allLandmarks[1] : allLandmarks[0];
+        const wrist = openHand[WRIST];
 
-      if (prevHandDist !== null) {
-        const delta = handDist - prevHandDist;
-        const radiusDelta = -delta * TWO_HAND_ZOOM_SENSITIVITY;
-        radius += radiusDelta;
-        radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
+        if (prevPanX !== null && prevPanY !== null) {
+          const dx = wrist.x - prevPanX;
+          const dy = wrist.y - prevPanY;
 
-        // capture zoom velocity for inertia
-        velRadius = radiusDelta;
+          // pan along camera's local right/up axes
+          camera.getWorldDirection(_forward);
+          _right.crossVectors(_forward, _worldUp).normalize();
+          _up.crossVectors(_right, _forward).normalize();
+
+          target.addScaledVector(_right, dx * PAN_SENSITIVITY);
+          target.addScaledVector(_up, -dy * PAN_SENSITIVITY);
+        }
+        prevPanX = wrist.x;
+        prevPanY = wrist.y;
+
+        // reset orbit/zoom tracking + kill inertia during pan
+        smoothDx = 0;
+        smoothDy = 0;
         velTheta = 0;
         velPhi = 0;
-      }
-      prevHandDist = handDist;
+        velRadius = 0;
+        prevWristX = null;
+        prevWristY = null;
+        prevHandDist = null;
+      } else {
+        // --- TWO-HAND ZOOM mode (both open) ---
+        const wristA = allLandmarks[0][WRIST];
+        const wristB = allLandmarks[1][WRIST];
 
-      // reset orbit tracking so we skip a jump when going back to one hand
-      prevWristX = null;
-      prevWristY = null;
+        const dx = wristA.x - wristB.x;
+        const dy = wristA.y - wristB.y;
+        const handDist = Math.sqrt(dx * dx + dy * dy);
+
+        if (prevHandDist !== null) {
+          const delta = handDist - prevHandDist;
+          const radiusDelta = -delta * TWO_HAND_ZOOM_SENSITIVITY;
+          radius += radiusDelta;
+          radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
+
+          // capture zoom velocity for inertia
+          velRadius = radiusDelta;
+          velTheta = 0;
+          velPhi = 0;
+        }
+        prevHandDist = handDist;
+
+        // reset orbit/pan tracking
+        smoothDx = 0;
+        smoothDy = 0;
+        prevWristX = null;
+        prevWristY = null;
+        prevPanX = null;
+        prevPanY = null;
+      }
     } else {
       // --- SINGLE-HAND ORBIT mode ---
       const wrist = allLandmarks[0][WRIST];
@@ -219,6 +272,8 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
       prevWristX = wrist.x;
       prevWristY = wrist.y;
       prevHandDist = null;
+      prevPanX = null;
+      prevPanY = null;
     }
 
     updateCameraPosition();

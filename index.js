@@ -301,7 +301,7 @@ function animate() {
           }
         }
 
-        cameraController.update(null);
+        cameraController.update(null, "brake");
       } else {
         cursorEl.style.display = "none";
         cameraController.update(handResults.landmarks);
@@ -310,7 +310,7 @@ function animate() {
       drawAllHands(handResults);
     } else {
       cursorEl.style.display = "none";
-      cameraController.update(null);
+      cameraController.update(null, "coast");
       fgConsecutive = 0;
       inFingerGunMode = false;
       cursorInitialized = false;
