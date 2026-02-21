@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController, isFingerGun, createThumbTapDetector } from "./handCameraControl.js";
-import { initSceneContext, tickAnimations } from "./sceneContext.js";
+import { initSceneContext, registerObject, getRegisteredAncestor, setSelectedName, tickAnimations } from "./sceneContext.js";
 import { initChatUI } from "./chatUI.js";
 import { createWindmill, createMountedKnight, createCastle, createVillage } from "./getBodies.js";
 
@@ -149,21 +149,25 @@ scene.add(gridHelper);
 // windmill at origin
 const windmill = createWindmill();
 scene.add(windmill);
+registerObject("windmill", windmill);
 
 // castle with moat (bottom-left from default camera)
 const castle = createCastle();
 castle.position.set(-10, 0, 5);
 castle.rotation.y = 0.4;
 scene.add(castle);
+registerObject("castle", castle);
 
 // villages scattered around the scene
 const villageSpots = [
   [10, -8], [-8, -10], [12, 7], [-14, -4], [5, 12], [-3, -12],
 ];
-for (const [vx, vz] of villageSpots) {
+for (let i = 0; i < villageSpots.length; i++) {
+  const [vx, vz] = villageSpots[i];
   const v = createVillage(3 + Math.floor(Math.random() * 3), 4 + Math.floor(Math.random() * 4));
   v.position.set(vx, 0, vz);
   scene.add(v);
+  registerObject(`village-${i + 1}`, v);
 }
 
 // knight on boar-back in front of windmill
@@ -171,6 +175,7 @@ const knight = createMountedKnight();
 knight.position.set(1.5, 0, 3.5);
 knight.rotation.y = 0.3;
 scene.add(knight);
+registerObject("knight", knight);
 
 // hand-driven camera controller
 const cameraController = createHandCameraController(camera);
@@ -179,9 +184,32 @@ const cameraController = createHandCameraController(camera);
 const cursorEl = document.getElementById("cursor");
 const raycaster = new THREE.Raycaster();
 const thumbTap = createThumbTapDetector();
-let selectedMesh = null;
-let selectedOriginalColor = null;
-const HIGHLIGHT_COLOR = 0xf0c040;
+let selectedGroup = null;
+const savedMaterials = new Map();
+const HIGHLIGHT_EMISSIVE = new THREE.Color(0xff00ff);
+const HIGHLIGHT_INTENSITY = 0.35;
+
+function highlightGroup(group) {
+  group.traverse((child) => {
+    if (child.isMesh && child.material) {
+      savedMaterials.set(child, child.material);
+      const cloned = child.material.clone();
+      cloned.emissive = HIGHLIGHT_EMISSIVE.clone();
+      cloned.emissiveIntensity = HIGHLIGHT_INTENSITY;
+      child.material = cloned;
+    }
+  });
+}
+
+function unhighlightGroup() {
+  for (const [mesh, original] of savedMaterials) {
+    mesh.material.dispose();
+    mesh.material = original;
+  }
+  savedMaterials.clear();
+  selectedGroup = null;
+  setSelectedName(null);
+}
 
 // cursor smoothing
 const CURSOR_SMOOTHING = 0.35;
@@ -284,20 +312,21 @@ function animate() {
           raycaster.setFromCamera(ndc, camera);
           const hits = raycaster.intersectObjects(scene.children, true);
 
-          if (selectedMesh) {
-            selectedMesh.material.color.set(selectedOriginalColor);
-            selectedMesh.material.emissive?.set(0x000000);
+          if (selectedGroup) unhighlightGroup();
+
+          // find first hit that belongs to a registered object
+          let match = null;
+          for (const hit of hits) {
+            const ancestor = getRegisteredAncestor(hit.object);
+            if (ancestor) { match = ancestor; break; }
           }
 
-          if (hits.length > 0) {
-            selectedMesh = hits[0].object;
-            selectedOriginalColor = selectedMesh.material.color.getHex();
-            selectedMesh.material.color.set(HIGHLIGHT_COLOR);
+          if (match && match.object !== selectedGroup) {
+            selectedGroup = match.object;
+            setSelectedName(match.name);
+            highlightGroup(selectedGroup);
             cursorEl.classList.add("tapped");
             setTimeout(() => cursorEl.classList.remove("tapped"), 150);
-          } else {
-            selectedMesh = null;
-            selectedOriginalColor = null;
           }
         }
 

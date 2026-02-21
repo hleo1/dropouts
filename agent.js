@@ -1,15 +1,7 @@
 const PROXY_URL = "http://localhost:9876/v1/messages";
-const MODEL = "claude-sonnet-4-5-20250929";
+const MODEL = "claude-opus-4-6";
 
-let apiKey = "";
 const conversationHistory = [];
-
-export function setApiKey(key) {
-  apiKey = key.trim();
-}
-export function getApiKey() {
-  return apiKey;
-}
 
 const SYSTEM_PROMPT = `You are a 3D scene builder. You write JavaScript code that runs in a Three.js scene.
 
@@ -20,6 +12,12 @@ SCENE LAYOUT:
 - Lighting: HemisphereLight (sky/ground) + DirectionalLight ("sun") with shadows.
 - Shadows are enabled (PCFSoftShadowMap). Objects you create should cast/receive shadows.
 - Camera starts at radius 12 from origin, controlled by hand gestures.
+
+PRE-EXISTING OBJECTS (already registered, use getObject to modify or removeObject to delete):
+- "windmill" — windmill at origin with rotating blades
+- "castle" — castle with moat at (-10, 0, 5)
+- "village-1" through "village-6" — villages scattered around the scene
+- "knight" — mounted knight on boar at (1.5, 0, 3.5)
 
 AVAILABLE API (all in scope, no imports needed):
 - THREE — the full Three.js namespace
@@ -42,7 +40,8 @@ Scene management:
 - removeObject("name") — remove by name
 - getObject("name") — get existing object to modify
 - listObjects() — array of registered names
-- clearAll() — remove all agent-created objects (keeps original blocks)
+- getSelected() — returns the name of the user's currently selected object (via finger-gun pointing), or null
+- clearAll() — remove ALL registered objects (including pre-existing scene objects)
 
 Animation:
 - addAnimation("name", (delta) => { ... }) — runs every frame, delta in seconds
@@ -65,20 +64,23 @@ RULES:
 10. Keep code concise. No imports, no DOM access.`;
 
 export async function askAgent(userMessage) {
-  if (!apiKey) throw new Error("API key not set");
-
   conversationHistory.push({ role: "user", content: userMessage });
 
   const res = await fetch(PROXY_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": apiKey,
+      "x-api-key": "proxy-injected",
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: 16000,
+      temperature: 1,
+      thinking: {
+        type: "enabled",
+        budget_tokens: 10000,
+      },
       system: SYSTEM_PROMPT,
       messages: conversationHistory,
     }),
@@ -95,7 +97,8 @@ export async function askAgent(userMessage) {
     .map((b) => b.text)
     .join("\n");
 
-  conversationHistory.push({ role: "assistant", content: assistantText });
+  // keep full content blocks (including thinking) for valid conversation history
+  conversationHistory.push({ role: "assistant", content: data.content });
 
   // extract code from ```js ... ``` fences
   const codeMatch = assistantText.match(/```(?:js|javascript)\s*\n([\s\S]*?)```/);

@@ -16,6 +16,7 @@ sceneContext.js       Scene API surface for LLM-generated code. Object registry,
 codeExecutor.js       Sandboxed execution of generated JS via new Function() with scene API injected.
 agent.js              LLM communication (Claude API via CORS proxy). Conversation history, code extraction.
 chatUI.js             Chat panel UI + orchestration. Single entry point: handleUserInput(text).
+voiceInput.js         Always-on Soniox streaming STT. Calls handleUserInput on completed utterances.
 proxy.mjs             Zero-dependency Node CORS proxy (port 9876) for Anthropic API.
 ```
 
@@ -30,7 +31,7 @@ proxy.mjs             Zero-dependency Node CORS proxy (port 9876) for Anthropic 
 
 ### Data flow — LLM agent
 
-1. User types (or voice sends) text → `handleUserInput(text)` in `chatUI.js`
+1. User types or speaks text → `handleUserInput(text)` in `chatUI.js` (voice via Soniox STT in `voiceInput.js`)
 2. `askAgent(text)` in `agent.js` sends conversation to Claude via CORS proxy (`localhost:9876`)
 3. Response is parsed: JS code extracted from ```js fences, explanation from surrounding text
 4. `executeGeneratedCode(code)` in `codeExecutor.js` runs code via `new Function()` with scene API injected
@@ -60,6 +61,7 @@ To avoid merge conflicts when multiple people are working simultaneously:
 | `codeExecutor.js` | Code sandboxing | Runs generated JS with scene API params. No window/document/fetch access. |
 | `agent.js` | LLM communication | System prompt, conversation history, code fence parsing. Uses `claude-sonnet-4-5-20250929`. |
 | `chatUI.js` | Chat UI + orchestration | Creates all DOM in JS. `handleUserInput(text)` is the single entry point for voice swap. |
+| `voiceInput.js` | Soniox streaming STT | Always-on mic → text. Uses endpoint detection for utterance boundaries. |
 | `proxy.mjs` | CORS proxy | Must be running (`node proxy.mjs`) for agent to work. Port 9876. |
 
 ## Code Style
@@ -78,6 +80,7 @@ All dependencies load from CDN via the importmap in `index.html`. There is no `n
 
 - **Three.js** — `three` and `jsm/` mapped in importmap
 - **MediaPipe** — `@mediapipe/tasks-vision` mapped as `mediapipe`
+- **Soniox STT** — `@soniox/speech-to-text-web` mapped as `soniox-stt` in importmap
 
 To add or upgrade a dependency, update the importmap URLs in `index.html`. Pin exact versions.
 
@@ -88,7 +91,7 @@ node proxy.mjs          # Terminal 1: CORS proxy (required for LLM agent)
 npx serve . -p 3000     # Terminal 2: Static file server
 ```
 
-Then open http://localhost:3000 in a browser with webcam access. Set your Anthropic API key in the chat panel (bottom-left).
+Then open http://localhost:3000 in a browser with webcam + mic access. API keys are hardcoded — no key entry needed.
 
 ## Scene Details
 

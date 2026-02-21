@@ -7,6 +7,7 @@ let _camera = null;
 const objectRegistry = new Map();
 const animations = new Map();
 let animId = 0;
+let _selectedName = null;
 
 export function initSceneContext(scene, camera) {
   _scene = scene;
@@ -56,6 +57,10 @@ export function getSceneAPI() {
 
     listObjects() {
       return Array.from(objectRegistry.keys());
+    },
+
+    getSelected() {
+      return _selectedName;
     },
 
     clearAll() {
@@ -151,6 +156,25 @@ export function getSceneAPI() {
       return THREE.MathUtils.degToRad(deg);
     },
   };
+}
+
+export function registerObject(name, obj) {
+  objectRegistry.set(name, obj);
+}
+
+export function setSelectedName(name) {
+  _selectedName = name;
+}
+
+export function getRegisteredAncestor(obj) {
+  let current = obj;
+  while (current) {
+    for (const [name, registered] of objectRegistry) {
+      if (registered === current) return { name, object: current };
+    }
+    current = current.parent;
+  }
+  return null;
 }
 
 export function tickAnimations(delta) {

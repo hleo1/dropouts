@@ -1,5 +1,6 @@
-import { setApiKey, getApiKey, askAgent } from "./agent.js";
+import { askAgent } from "./agent.js";
 import { executeGeneratedCode } from "./codeExecutor.js";
+import { initVoiceInput } from "./voiceInput.js";
 
 export function initChatUI() {
   // --- container ---
@@ -23,66 +24,77 @@ export function initChatUI() {
     overflow: "hidden",
   });
 
-  // --- API key section ---
-  const keySection = document.createElement("div");
-  Object.assign(keySection.style, {
-    padding: "10px 12px",
+  // --- voice status indicator ---
+  const voiceSection = document.createElement("div");
+  Object.assign(voiceSection.style, {
+    padding: "8px 12px",
     borderBottom: "1px solid rgba(255,255,255,0.08)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
   });
 
-  const keyRow = document.createElement("div");
-  keyRow.style.display = "flex";
-  keyRow.style.gap = "6px";
-
-  const keyInput = document.createElement("input");
-  keyInput.type = "password";
-  keyInput.placeholder = "Anthropic API key";
-  Object.assign(keyInput.style, {
-    flex: "1",
-    padding: "6px 8px",
-    borderRadius: "6px",
-    border: "1px solid rgba(255,255,255,0.15)",
-    background: "rgba(255,255,255,0.05)",
-    color: "#e0e0e0",
-    fontSize: "12px",
-    outline: "none",
+  const voiceRow = document.createElement("div");
+  Object.assign(voiceRow.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
   });
 
-  const keyBtn = document.createElement("button");
-  keyBtn.textContent = "Set";
-  Object.assign(keyBtn.style, {
-    padding: "6px 12px",
-    borderRadius: "6px",
-    border: "none",
-    background: "#4a90d9",
-    color: "#fff",
-    cursor: "pointer",
-    fontSize: "12px",
+  const voiceDot = document.createElement("div");
+  Object.assign(voiceDot.style, {
+    width: "8px",
+    height: "8px",
+    borderRadius: "50%",
+    background: "#888",
+    flexShrink: "0",
   });
 
-  keyRow.append(keyInput, keyBtn);
-  keySection.appendChild(keyRow);
-  panel.appendChild(keySection);
+  const voiceLabel = document.createElement("span");
+  voiceLabel.style.fontSize = "12px";
+  voiceLabel.textContent = "Connecting...";
 
-  function collapseKey() {
-    keySection.style.display = "none";
+  const partialText = document.createElement("div");
+  Object.assign(partialText.style, {
+    fontSize: "11px",
+    color: "#aaa",
+    fontStyle: "italic",
+    minHeight: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  });
+
+  voiceRow.append(voiceDot, voiceLabel);
+  voiceSection.append(voiceRow, partialText);
+  panel.appendChild(voiceSection);
+
+  // pulse animation for the dot
+  const pulseKeyframes = `
+    @keyframes voice-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+  `;
+  const styleEl = document.createElement("style");
+  styleEl.textContent = pulseKeyframes;
+  document.head.appendChild(styleEl);
+
+  function updateVoiceStatus(state) {
+    if (state === "listening") {
+      voiceDot.style.background = "#51cf66";
+      voiceDot.style.animation = "voice-pulse 1.5s ease-in-out infinite";
+      voiceLabel.textContent = "Listening...";
+    } else if (state === "connecting") {
+      voiceDot.style.background = "#fcc419";
+      voiceDot.style.animation = "none";
+      voiceLabel.textContent = "Connecting...";
+    } else if (state === "error") {
+      voiceDot.style.background = "#ff6b6b";
+      voiceDot.style.animation = "none";
+      voiceLabel.textContent = "Mic error";
+    }
   }
-
-  keyBtn.addEventListener("click", () => {
-    if (keyInput.value.trim()) {
-      setApiKey(keyInput.value);
-      collapseKey();
-    }
-  });
-  keyInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && keyInput.value.trim()) {
-      setApiKey(keyInput.value);
-      collapseKey();
-    }
-  });
-
-  // restore key if already set
-  if (getApiKey()) collapseKey();
 
   // --- message log ---
   const log = document.createElement("div");
@@ -159,7 +171,7 @@ export function initChatUI() {
 
   const textInput = document.createElement("input");
   textInput.type = "text";
-  textInput.placeholder = "Describe what to create...";
+  textInput.placeholder = "Type or speak...";
   Object.assign(textInput.style, {
     flex: "1",
     padding: "8px 10px",
@@ -194,12 +206,6 @@ export function initChatUI() {
   async function handleUserInput(text) {
     text = text.trim();
     if (!text || busy) return;
-
-    if (!getApiKey()) {
-      appendMsg("Set your API key first.", "error");
-      keySection.style.display = "";
-      return;
-    }
 
     busy = true;
     appendMsg(text, "user");
@@ -246,4 +252,16 @@ export function initChatUI() {
 
   // expose for voice integration
   window.handleUserInput = handleUserInput;
+
+  // --- init voice input ---
+  initVoiceInput({
+    onStatusChange: updateVoiceStatus,
+    onPartialText(text) {
+      partialText.textContent = text;
+    },
+    onFinalText(text) {
+      partialText.textContent = "";
+      handleUserInput(text);
+    },
+  });
 }
