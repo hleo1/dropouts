@@ -88,47 +88,31 @@ function drawHandDots(landmarks) {
   dotCanvas.width = dotCanvas.clientWidth;
   dotCanvas.height = dotCanvas.clientHeight;
   dotCtx.clearRect(0, 0, dotCanvas.width, dotCanvas.height);
+}
 
-  if (!hands || hands.length === 0) return;
-
-  for (const { landmarks, isRight } of hands) {
-    const color = isRight ? '#00ff88' : '#ff8800';
-    landmarks.forEach((lm) => {
-      const x = (1 - lm.x) * dotCanvas.width;
-      const y = lm.y * dotCanvas.height;
-      dotCtx.beginPath();
-      dotCtx.arc(x, y, 3, 0, Math.PI * 2);
-      dotCtx.fillStyle = color;
-      dotCtx.fill();
-    });
-  }
+function drawHandDots(landmarks) {
+  landmarks.forEach((lm) => {
+    // landmarks are normalized 0-1; mirror X to match scaleX(-1) on the video
+    const x = (1 - lm.x) * dotCanvas.width;
+    const y = lm.y * dotCanvas.height;
+    dotCtx.beginPath();
+    dotCtx.arc(x, y, 3, 0, Math.PI * 2);
+    dotCtx.fillStyle = '#00ff88';
+    dotCtx.fill();
+  });
 }
 
 function animate() {
+  // hand-tracking → camera control + dots
   if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
     const handResults = handLandmarker.detectForVideo(video, Date.now());
-    const numHands = handResults.landmarks.length;
 
-    if (numHands > 0) {
-      let rightLandmarks = null;
-      const handsForDots = [];
-
-      for (let i = 0; i < numHands; i++) {
-        const label = handResults.handednesses[i][0].categoryName;
-        const isRight = label === 'Left';
-        handsForDots.push({ landmarks: handResults.landmarks[i], isRight });
-        if (isRight) {
-          rightLandmarks = handResults.landmarks[i];
-        }
-      }
-
+    clearDotCanvas();
     if (handResults.landmarks.length > 0) {
-      currentLandmarks = handResults.landmarks[0];
-      cameraController.update(currentLandmarks);
-      drawHandDots(currentLandmarks);
+      cameraController.update(handResults.landmarks);
+      handResults.landmarks.forEach((lm) => drawHandDots(lm));
     } else {
       cameraController.update(null);
-      drawHandDots(null);
     }
   }
 
