@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Hand-tracked 3D canvas using Three.js + MediaPipe Hand Landmarker. The user's webcam hands control a spherical camera around a scene of static blocks. No build step — runs directly via `npx serve .` with ES module imports from CDN.
+Hand-tracked 3D canvas using Three.js + MediaPipe Hand Landmarker. The user's webcam hands control a spherical camera around a scene of static blocks. Supports finger-gun gesture for cursor-based block selection with thumb-tap interaction. No build step — runs directly via `npx serve .` with ES module imports from CDN.
 
 ## Architecture
 
@@ -20,7 +20,8 @@ getBodies.js        Static block geometry generator for scene objects.
 2. Animation loop in `index.js` calls `handLandmarker.detectForVideo()` each frame
 3. Raw `handResults.landmarks` array (one entry per detected hand) is passed to `handCameraControl`
 4. Camera controller decides behavior: one hand = orbit, two hands = zoom, both fists = pause
-5. `index.js` draws hand landmark dots on the PIP canvas overlay (green = user's right, orange = left)
+5. If a finger-gun gesture is detected (with frame-based hysteresis), `index.js` enters selection mode: a smoothed cursor tracks the index fingertip, and a thumb-tap triggers raycaster hit-testing against blocks
+6. `index.js` draws hand landmark dots on the PIP canvas overlay (green = user's right, orange = left)
 
 ### Key detail: MediaPipe handedness is camera-relative
 
@@ -37,7 +38,7 @@ To avoid merge conflicts when multiple people are working simultaneously:
 | File | Owner / Concern | Notes |
 |------|----------------|-------|
 | `index.js` | Scene setup + animation loop | The glue layer. Keep it thin — delegate logic to modules. |
-| `handCameraControl.js` | All gesture interpretation + camera math | Only file that should read landmark positions for camera control. |
+| `handCameraControl.js` | All gesture interpretation + camera math | Owns gesture detectors (fist, finger-gun, thumb-tap) and camera orbit/zoom. |
 | `getVisionStuff.js` | MediaPipe config + webcam access | Rarely needs changes. If adding new models, add here. |
 | `getBodies.js` | Scene object generation | Add new object types here. Keep pure (returns mesh, no side effects). |
 | `index.html` | DOM structure + importmap | Update importmap when adding/upgrading CDN dependencies. |
@@ -75,3 +76,5 @@ Then open http://localhost:3000 in a browser with webcam access.
 - **Pinch/fist thresholds:** Tuning constants are at the top of `handCameraControl.js`. Small changes have big UX impact — test with actual hands before committing.
 - **Camera position:** Uses spherical coordinates (theta, phi, radius) around a target point. `updateCameraPosition()` is the single source of truth for camera placement.
 - **Frame-to-frame deltas:** The controller tracks previous wrist positions. When switching modes (orbit ↔ zoom) or when a hand disappears, previous values are reset to `null` to avoid jump artifacts on the next frame.
+- **Finger-gun hysteresis:** Mode switches require several consecutive frames of detection (`FG_ENTER_FRAMES` / `FG_EXIT_FRAMES`) to prevent flickering between orbit and selection modes.
+- **Thumb-tap hysteresis:** Uses enter/exit distance thresholds (`THUMB_TAP_ENTER` / `THUMB_TAP_EXIT`) to fire exactly once per tap and avoid repeated triggers.
