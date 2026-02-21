@@ -7,20 +7,34 @@ Hand-tracked 3D canvas using Three.js + MediaPipe Hand Landmarker. The user's we
 ## Architecture
 
 ```
-index.html          Entry point. Loads index.js as ES module. Contains importmap for CDN deps.
-index.js            Main app. Scene setup, animation loop, hand dot visualization.
+index.html            Entry point. Loads index.js as ES module. Contains importmap for CDN deps.
+index.js              Main app. Scene setup, animation loop, hand dot visualization, wires up agent system.
 handCameraControl.js  Camera controller. Maps hand landmarks to orbit/zoom. Owns all gesture logic.
-getVisionStuff.js   MediaPipe + webcam initialization. Returns { video, handLandmarker }.
-getBodies.js        Static block geometry generator for scene objects.
+getVisionStuff.js     MediaPipe + webcam initialization. Returns { video, handLandmarker }.
+getBodies.js          Static block geometry generator for scene objects.
+sceneContext.js       Scene API surface for LLM-generated code. Object registry, animation system, helpers.
+codeExecutor.js       Sandboxed execution of generated JS via new Function() with scene API injected.
+agent.js              LLM communication (Claude API via CORS proxy). Conversation history, code extraction.
+chatUI.js             Chat panel UI + orchestration. Single entry point: handleUserInput(text).
+proxy.mjs             Zero-dependency Node CORS proxy (port 9876) for Anthropic API.
 ```
 
-### Data flow
+### Data flow — Hand tracking
 
 1. `getVisionStuff` initializes MediaPipe HandLandmarker (2 hands) and webcam stream
 2. Animation loop in `index.js` calls `handLandmarker.detectForVideo()` each frame
 3. Raw `handResults.landmarks` array (one entry per detected hand) is passed to `handCameraControl`
 4. Camera controller decides behavior: one hand = orbit, two hands = zoom, both fists = pause
 5. `index.js` draws hand landmark dots on the PIP canvas overlay (green = user's right, orange = left)
+
+### Data flow — LLM agent
+
+1. User types (or voice sends) text → `handleUserInput(text)` in `chatUI.js`
+2. `askAgent(text)` in `agent.js` sends conversation to Claude via CORS proxy (`localhost:9876`)
+3. Response is parsed: JS code extracted from ```js fences, explanation from surrounding text
+4. `executeGeneratedCode(code)` in `codeExecutor.js` runs code via `new Function()` with scene API injected
+5. Generated code uses helpers like `createSphere()`, `addObject()`, `addAnimation()` from `sceneContext.js`
+6. `tickAnimations(delta)` is called every frame in the animate loop to run registered animation callbacks
 
 ### Key detail: MediaPipe handedness is camera-relative
 
@@ -41,6 +55,11 @@ To avoid merge conflicts when multiple people are working simultaneously:
 | `getVisionStuff.js` | MediaPipe config + webcam access | Rarely needs changes. If adding new models, add here. |
 | `getBodies.js` | Scene object generation | Add new object types here. Keep pure (returns mesh, no side effects). |
 | `index.html` | DOM structure + importmap | Update importmap when adding/upgrading CDN dependencies. |
+| `sceneContext.js` | Scene API for generated code | Object registry + animation system. Helpers return meshes but don't add to scene. |
+| `codeExecutor.js` | Code sandboxing | Runs generated JS with scene API params. No window/document/fetch access. |
+| `agent.js` | LLM communication | System prompt, conversation history, code fence parsing. Uses `claude-sonnet-4-5-20250929`. |
+| `chatUI.js` | Chat UI + orchestration | Creates all DOM in JS. `handleUserInput(text)` is the single entry point for voice swap. |
+| `proxy.mjs` | CORS proxy | Must be running (`node proxy.mjs`) for agent to work. Port 9876. |
 
 ## Code Style
 
@@ -64,10 +83,20 @@ To add or upgrade a dependency, update the importmap URLs in `index.html`. Pin e
 ## Running
 
 ```bash
-npx serve .
+node proxy.mjs          # Terminal 1: CORS proxy (required for LLM agent)
+npx serve . -p 3000     # Terminal 2: Static file server
 ```
 
-Then open http://localhost:3000 in a browser with webcam access.
+Then open http://localhost:3000 in a browser with webcam access. Set your Anthropic API key in the chat panel (bottom-left).
+
+## Scene Details
+
+- **Ground:** Brown `MeshLambertMaterial` plane at y=-5, with grid overlay at y=-4.99
+- **Lighting:** `HemisphereLight` (sky/ground) + `DirectionalLight` ("sun" at 15,25,10) with shadow mapping
+- **Shadows:** `PCFSoftShadowMap` enabled. Renderer uses `ACESFilmicToneMapping`, `SRGBColorSpace`
+- **Background:** Gradient blue sky via `CanvasTexture`
+- **Blocks:** 40 earthy-toned `MeshLambertMaterial` boxes with edge wireframes, cast/receive shadows
+- **Agent objects** are tracked in a `Map<name, Object3D>` in `sceneContext.js`. `clearAll()` only removes agent-created objects, not original scene objects.
 
 ## Common Pitfalls
 
@@ -75,3 +104,5 @@ Then open http://localhost:3000 in a browser with webcam access.
 - **Pinch/fist thresholds:** Tuning constants are at the top of `handCameraControl.js`. Small changes have big UX impact — test with actual hands before committing.
 - **Camera position:** Uses spherical coordinates (theta, phi, radius) around a target point. `updateCameraPosition()` is the single source of truth for camera placement.
 - **Frame-to-frame deltas:** The controller tracks previous wrist positions. When switching modes (orbit ↔ zoom) or when a hand disappears, previous values are reset to `null` to avoid jump artifacts on the next frame.
+- **Proxy must be running:** The LLM agent calls `localhost:9876` which proxies to `api.anthropic.com`. If the proxy isn't running, you get "Failed to fetch" errors.
+- **Voice integration:** `window.handleUserInput` is exposed globally by `chatUI.js` — voice input should call this directly instead of wiring into the DOM.
