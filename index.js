@@ -3,7 +3,11 @@ import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController, isFingerGun, createThumbTapDetector } from "./handCameraControl.js";
 import { initSceneContext, registerObject, getRegisteredAncestor, setSelectedName, tickAnimations } from "./sceneContext.js";
 import { initChatUI } from "./chatUI.js";
-import { createWindmill, createMountedKnight, createCastle, createVillage, GROUND_Y } from "./getBodies.js";
+import {
+  createWindmill, createMountedKnight, createCastle, createVillage,
+  createTree, createHill, createMountain, buildVillager, getTerrainHeight,
+  GROUND_Y,
+} from "./getBodies.js";
 import { EffectComposer } from "jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "jsm/postprocessing/UnrealBloomPass.js";
@@ -168,8 +172,16 @@ const grassTexture = new THREE.CanvasTexture(grassCanvas);
 grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
 grassTexture.repeat.set(20, 20);
 
-// ground plane
-const groundGeo = new THREE.PlaneGeometry(80, 80, 32, 32);
+// ground plane with terrain displacement
+const groundGeo = new THREE.PlaneGeometry(80, 80, 128, 128);
+const pos = groundGeo.attributes.position;
+for (let i = 0; i < pos.count; i++) {
+  const x = pos.getX(i);
+  const y = pos.getY(i);
+  // plane lies in XY before rotation; Y becomes Z in world, Z attr stores displacement → becomes Y
+  pos.setZ(i, getTerrainHeight(x, -y));
+}
+groundGeo.computeVertexNormals();
 const groundMat = new THREE.MeshStandardMaterial({
   map: grassTexture,
   roughness: 0.9,
@@ -187,31 +199,36 @@ scene.add(gridHelper);
 
 // windmill at origin
 const windmill = createWindmill();
+windmill.position.y = getTerrainHeight(0, 0);
 scene.add(windmill);
 registerObject("windmill", windmill);
 
 // castle with moat (bottom-left from default camera)
 const castle = createCastle();
-castle.position.set(-10, 0, 5);
+castle.position.set(-10, getTerrainHeight(-10, 5), 5);
 castle.rotation.y = 0.4;
 scene.add(castle);
 registerObject("castle", castle);
 
-// villages scattered around the scene
+// villages scattered densely around the scene
 const villageSpots = [
   [10, -8], [-8, -10], [12, 7], [-14, -4], [5, 12], [-3, -12],
+  [4, 8], [-6, 4], [8, 4], [-10, -8], [15, -3], [-2, 7],
+  [6, -4], [-12, 12],
 ];
 for (let i = 0; i < villageSpots.length; i++) {
   const [vx, vz] = villageSpots[i];
-  const v = createVillage(3 + Math.floor(Math.random() * 3), 4 + Math.floor(Math.random() * 4));
-  v.position.set(vx, 0, vz);
+  const cottages = 5 + Math.floor(Math.random() * 4);
+  const villagers = 6 + Math.floor(Math.random() * 5);
+  const v = createVillage(cottages, villagers);
+  v.position.set(vx, getTerrainHeight(vx, vz), vz);
   scene.add(v);
   registerObject(`village-${i + 1}`, v);
 }
 
 // knight on boar-back in front of windmill
 const knight = createMountedKnight();
-knight.position.set(1.5, 0, 3.5);
+knight.position.set(1.5, getTerrainHeight(1.5, 3.5), 3.5);
 knight.rotation.y = 0.3;
 scene.add(knight);
 registerObject("knight", knight);
@@ -247,6 +264,66 @@ const particleMat = new THREE.PointsMaterial({
 });
 const particles = new THREE.Points(particleGeo, particleMat);
 scene.add(particles);
+// trees scattered densely throughout the scene
+const treePositions = [
+  [6, 3], [-5, -7], [14, 2], [-12, 8], [8, -12],
+  [-7, 14], [16, -5], [-15, -8], [3, -9], [11, 11],
+  [-9, 3], [18, 8], [-4, 10], [7, -6], [-16, 1],
+  [2, -6], [-3, 8], [9, 1], [-7, -3], [13, -9],
+  [5, -14], [-11, 2], [17, 4], [-14, 10], [1, 14],
+  [-8, -15], [10, 5], [-5, 12], [15, 10], [-18, -3],
+  [7, 9], [-2, -8], [4, -3], [-9, 7], [12, -4],
+  [20, 1], [-20, 6], [3, 16], [-6, -18], [8, 18],
+  [-15, 14], [18, -10], [-17, -12], [11, -15], [0, -16],
+];
+for (let i = 0; i < treePositions.length; i++) {
+  const [tx, tz] = treePositions[i];
+  const s = 0.8 + Math.random() * 0.5;
+  const tree = createTree(s);
+  tree.position.set(tx, getTerrainHeight(tx, tz), tz);
+  tree.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(tree);
+  registerObject(`tree-${i + 1}`, tree);
+}
+
+// standalone villagers wandering between villages
+for (let i = 0; i < 20; i++) {
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 3 + Math.random() * 18;
+  const vx = Math.cos(angle) * dist;
+  const vz = Math.sin(angle) * dist;
+  const v = buildVillager();
+  v.position.set(vx, getTerrainHeight(vx, vz), vz);
+  v.rotation.y = Math.random() * Math.PI * 2;
+  scene.add(v);
+}
+
+// hills — gentle bumps across the landscape
+const hillSpots = [
+  [8, 10, 4, 1.5], [-12, -6, 3.5, 1.2], [16, -8, 5, 2.0],
+  [-18, 10, 4.5, 1.8], [3, -15, 3, 1.0], [-6, 16, 4, 1.4],
+  [14, 14, 3.5, 1.3], [-16, -14, 5, 2.2],
+];
+for (let i = 0; i < hillSpots.length; i++) {
+  const [hx, hz, hr, hh] = hillSpots[i];
+  const hill = createHill(hr, hh);
+  hill.position.set(hx, getTerrainHeight(hx, hz), hz);
+  scene.add(hill);
+  registerObject(`hill-${i + 1}`, hill);
+}
+
+// mountains — tall peaks at the far edges framing the scene
+const mountainSpots = [
+  [25, 20, 6, 12], [-28, 15, 7, 14], [30, -15, 5, 10],
+  [-25, -22, 8, 16], [0, 28, 6, 11],
+];
+for (let i = 0; i < mountainSpots.length; i++) {
+  const [mx, mz, mr, mh] = mountainSpots[i];
+  const mountain = createMountain(mr, mh);
+  mountain.position.set(mx, getTerrainHeight(mx, mz), mz);
+  scene.add(mountain);
+  registerObject(`mountain-${i + 1}`, mountain);
+}
 
 // hand-driven camera controller
 const cameraController = createHandCameraController(camera);
