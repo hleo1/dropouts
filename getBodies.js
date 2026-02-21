@@ -8,11 +8,15 @@ function getBlock() {
   const d = 0.5 + Math.random() * 1.5;
 
   const geometry = new THREE.BoxGeometry(w, h, d);
-  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.85, transparent: true });
+  const palette = [0xe8d5b7, 0xd4a574, 0xc9b896, 0xdfc9a8, 0xe5d4b8];
+  const color = palette[Math.floor(Math.random() * palette.length)];
+  const material = new THREE.MeshLambertMaterial({ color });
   const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
 
   const edges = new THREE.EdgesGeometry(geometry);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x3d2e1f });
   const wireframe = new THREE.LineSegments(edges, lineMat);
   mesh.add(wireframe);
 
