@@ -7,12 +7,42 @@ import { createHandCameraController } from "./handCameraControl.js";
 const w = window.innerWidth;
 const h = window.innerHeight;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a1a);
+// gradient sky
+const skyCanvas = document.createElement("canvas");
+skyCanvas.width = 2;
+skyCanvas.height = 256;
+const skyCtx = skyCanvas.getContext("2d");
+const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+skyGrad.addColorStop(0, "#4a90d9");
+skyGrad.addColorStop(0.5, "#7eb8e8");
+skyGrad.addColorStop(1, "#b8d4f0");
+skyCtx.fillStyle = skyGrad;
+skyCtx.fillRect(0, 0, 2, 256);
+scene.background = new THREE.CanvasTexture(skyCanvas);
+
 const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 200);
 camera.position.z = 12;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(w, h);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
+
+// lighting
+const hemi = new THREE.HemisphereLight(0xb8d4f0, 0x8b6b3a, 0.4);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff5e6, 1.0);
+sun.position.set(15, 25, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 80;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -25;
+sun.shadow.camera.right = sun.shadow.camera.top = 25;
+scene.add(sun);
 
 // init video and MediaPipe
 const { video, handLandmarker } = await getVisionStuff();
@@ -25,20 +55,20 @@ pipVideo.srcObject = video.srcObject;
 const dotCanvas = document.getElementById("hand-dots");
 const dotCtx = dotCanvas.getContext("2d");
 
-// starfield for spatial orientation
-const starCount = 500;
-const starPositions = new Float32Array(starCount * 3);
-for (let i = 0; i < starCount * 3; i++) {
-  starPositions[i] = (Math.random() - 0.5) * 100;
-}
-const starGeo = new THREE.BufferGeometry();
-starGeo.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
-const starMat = new THREE.PointsMaterial({ color: 0x888888, size: 0.15 });
-scene.add(new THREE.Points(starGeo, starMat));
+// ground plane
+const groundGeo = new THREE.PlaneGeometry(80, 80, 32, 32);
+const groundMat = new THREE.MeshLambertMaterial({
+  color: 0x9c6b3a,
+  side: THREE.DoubleSide,
+});
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -5;
+ground.receiveShadow = true;
+scene.add(ground);
 
-// subtle ground grid
-const gridHelper = new THREE.GridHelper(60, 40, 0x222244, 0x222244);
-gridHelper.position.y = -5;
+const gridHelper = new THREE.GridHelper(60, 40, 0x7a5a3a, 0x5c4428);
+gridHelper.position.y = -4.99;
 scene.add(gridHelper);
 
 // hand-driven camera controller
