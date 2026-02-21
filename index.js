@@ -166,6 +166,7 @@ function animate() {
 
       if (inFingerGunMode && fingerGunHand) {
         // --- SELECTION MODE ---
+        cameraController.stopInertia();
         const indexTip = fingerGunHand[8];
         const rawX = (1 - indexTip.x) * window.innerWidth;
         const rawY = indexTip.y * window.innerHeight;
