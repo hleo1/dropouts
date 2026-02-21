@@ -6,13 +6,15 @@ const ORBIT_SENSITIVITY_Y = 2.0;   // phi (vertical) sensitivity
 const TWO_HAND_ZOOM_SENSITIVITY = 8.0;
 const PAN_SENSITIVITY = 15.0;
 const SMOOTHING = 0.3;             // exponential smoothing (0 = no smoothing, 1 = frozen)
-const INERTIA_FRICTION = 0.92;     // per-frame velocity decay when coasting (0 = instant stop, 1 = forever)
-const INERTIA_CUTOFF = 0.0001;     // stop drifting below this velocity
+const INERTIA_FRICTION = 0.92;     // velocity multiplier each frame (0.90 = fast stop, 0.97 = long glide)
+const INERTIA_STOP_THRESHOLD = 0.0001; // velocity below this is treated as zero
 
 const PHI_MIN = 0.1;
 const PHI_MAX = Math.PI - 0.1;
 const RADIUS_MIN = 2;
 const RADIUS_MAX = 40;
+const GROUND_Y = -5;            // must match ground.position.y in index.js
+const CAMERA_FLOOR_OFFSET = 0.5; // keep camera at least this far above the ground
 
 const WRIST = 0;
 // fingertip → PIP (second knuckle) pairs for curl detection
@@ -92,13 +94,28 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   let smoothDx = 0;
   let smoothDy = 0;
 
+  // inertia velocities (in theta/phi/radius per frame)
+  let velTheta = 0;
+  let velPhi = 0;
+  let velRadius = 0;
+
   // reusable vectors for pan math
   const _forward = new THREE.Vector3();
   const _right = new THREE.Vector3();
   const _up = new THREE.Vector3();
   const _worldUp = new THREE.Vector3(0, 1, 0);
 
+  // Compute the maximum phi so the camera never dips below the ground.
+  function getPhiMax() {
+    const minCosine = (GROUND_Y + CAMERA_FLOOR_OFFSET - target.y) / radius;
+    if (minCosine <= -1) return PHI_MAX;
+    if (minCosine >= 1) return PHI_MIN;
+    return Math.min(PHI_MAX, Math.acos(minCosine));
+  }
+
   function updateCameraPosition() {
+    phi = THREE.MathUtils.clamp(phi, PHI_MIN, getPhiMax());
+
     camera.position.set(
       target.x + radius * Math.sin(phi) * Math.cos(theta),
       target.y + radius * Math.cos(phi),
@@ -122,35 +139,46 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
       prevPanY = null;
 
       if (mode === "brake") {
-        smoothDx = 0;
-        smoothDy = 0;
+        velTheta = 0;
+        velPhi = 0;
+        velRadius = 0;
       } else {
         // coast: decay velocity
-        smoothDx *= INERTIA_FRICTION;
-        smoothDy *= INERTIA_FRICTION;
-        if (Math.abs(smoothDx) < INERTIA_CUTOFF) smoothDx = 0;
-        if (Math.abs(smoothDy) < INERTIA_CUTOFF) smoothDy = 0;
+        const hasInertia =
+          Math.abs(velTheta) > INERTIA_STOP_THRESHOLD ||
+          Math.abs(velPhi) > INERTIA_STOP_THRESHOLD ||
+          Math.abs(velRadius) > INERTIA_STOP_THRESHOLD;
 
-        theta += smoothDx * ORBIT_SENSITIVITY_X;
-        phi += smoothDy * ORBIT_SENSITIVITY_Y;
-        phi = THREE.MathUtils.clamp(phi, PHI_MIN, PHI_MAX);
+        if (hasInertia) {
+          theta += velTheta;
+          phi += velPhi;
+          phi = THREE.MathUtils.clamp(phi, PHI_MIN, getPhiMax());
+          radius += velRadius;
+          radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
+
+          velTheta *= INERTIA_FRICTION;
+          velPhi *= INERTIA_FRICTION;
+          velRadius *= INERTIA_FRICTION;
+
+          if (Math.abs(velTheta) <= INERTIA_STOP_THRESHOLD) velTheta = 0;
+          if (Math.abs(velPhi) <= INERTIA_STOP_THRESHOLD) velPhi = 0;
+          if (Math.abs(velRadius) <= INERTIA_STOP_THRESHOLD) velRadius = 0;
+        }
       }
 
       updateCameraPosition();
       return;
     }
 
-    // both fists → brake
+    // both fists → allow inertia to carry on
     const allFists = allLandmarks.every((lm) => isFist(lm));
     if (allFists) {
-      smoothDx = 0;
-      smoothDy = 0;
       prevWristX = null;
       prevWristY = null;
       prevHandDist = null;
       prevPanX = null;
       prevPanY = null;
-      updateCameraPosition();
+      // don't reset velocity — let inertia carry on next frame
       return;
     }
 
@@ -179,9 +207,12 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
         prevPanX = wrist.x;
         prevPanY = wrist.y;
 
-        // reset orbit/zoom tracking
+        // reset orbit/zoom tracking + kill inertia during pan
         smoothDx = 0;
         smoothDy = 0;
+        velTheta = 0;
+        velPhi = 0;
+        velRadius = 0;
         prevWristX = null;
         prevWristY = null;
         prevHandDist = null;
@@ -196,8 +227,14 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
 
         if (prevHandDist !== null) {
           const delta = handDist - prevHandDist;
-          radius -= delta * TWO_HAND_ZOOM_SENSITIVITY;
+          const radiusDelta = -delta * TWO_HAND_ZOOM_SENSITIVITY;
+          radius += radiusDelta;
           radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
+
+          // capture zoom velocity for inertia
+          velRadius = radiusDelta;
+          velTheta = 0;
+          velPhi = 0;
         }
         prevHandDist = handDist;
 
@@ -220,9 +257,17 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
         smoothDx = smoothDx * SMOOTHING + rawDx * (1 - SMOOTHING);
         smoothDy = smoothDy * SMOOTHING + rawDy * (1 - SMOOTHING);
 
-        theta += smoothDx * ORBIT_SENSITIVITY_X;
-        phi += smoothDy * ORBIT_SENSITIVITY_Y;
-        phi = THREE.MathUtils.clamp(phi, PHI_MIN, PHI_MAX);
+        const dTheta = smoothDx * ORBIT_SENSITIVITY_X;
+        const dPhi = smoothDy * ORBIT_SENSITIVITY_Y;
+
+        theta += dTheta;
+        phi += dPhi;
+        phi = THREE.MathUtils.clamp(phi, PHI_MIN, getPhiMax());
+
+        // capture orbit velocity for inertia
+        velTheta = dTheta;
+        velPhi = dPhi;
+        velRadius = 0;
       }
       prevWristX = wrist.x;
       prevWristY = wrist.y;
@@ -234,5 +279,5 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
     updateCameraPosition();
   }
 
-  return { update };
+  return { update, stopInertia() { velTheta = 0; velPhi = 0; velRadius = 0; } };
 }
