@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { getBlock } from "./getBodies.js";
 import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController, isFingerGun, createThumbTapDetector } from "./handCameraControl.js";
-import { createHandCameraController } from "./handCameraControl.js";
 import { initSceneContext, tickAnimations } from "./sceneContext.js";
 import { initChatUI } from "./chatUI.js";
 
