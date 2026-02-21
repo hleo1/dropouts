@@ -18,6 +18,10 @@ const materials = {
   water: new THREE.MeshStandardMaterial({
     color: 0x2a6496, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.8,
   }),
+  bark: new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 }),
+  foliage: new THREE.MeshStandardMaterial({ color: 0x3d6b2e, roughness: 0.8 }),
+  rock: new THREE.MeshStandardMaterial({ color: 0x6b6b6b, roughness: 0.95 }),
+  snow: new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.4 }),
 };
 
 
@@ -564,7 +568,95 @@ function createVillage(numCottages, numVillagers) {
   return village;
 }
 
+// flat zones: [x, z, radius] — structures that need flat ground beneath them
+const FLAT_ZONES = [
+  [0, 0, 6],       // windmill
+  [-10, 5, 10],    // castle + moat
+  [1.5, 3.5, 2],   // knight
+];
+
+function getTerrainHeight(x, z) {
+  let h = 0;
+  h += Math.sin(x * 0.15) * Math.cos(z * 0.12) * 1.5;
+  h += Math.sin(x * 0.3 + 1.0) * Math.cos(z * 0.25 + 0.5) * 0.6;
+  h += Math.sin(x * 0.08 + 2.0) * Math.cos(z * 0.1 - 1.0) * 0.8;
+  // flatten near key structures
+  let flatten = 1;
+  for (const [fx, fz, fr] of FLAT_ZONES) {
+    const d = Math.sqrt((x - fx) ** 2 + (z - fz) ** 2);
+    if (d < fr) {
+      flatten = Math.min(flatten, Math.max(0, (d / fr) ** 2));
+    }
+  }
+  return h * flatten;
+}
+
+function createHill(radius, height) {
+  const hill = new THREE.Group();
+  const geo = new THREE.SphereGeometry(radius, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const mesh = new THREE.Mesh(geo, materials.foliage);
+  mesh.scale.y = height / radius;
+  mesh.position.y = GROUND_Y;
+  mesh.receiveShadow = true;
+  hill.add(mesh);
+  return hill;
+}
+
+function createMountain(baseRadius, peakHeight) {
+  const mountain = new THREE.Group();
+  // main rocky body
+  const body = new THREE.Mesh(
+    new THREE.ConeGeometry(baseRadius, peakHeight, 8), materials.rock
+  );
+  body.position.y = GROUND_Y + peakHeight / 2;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  mountain.add(body);
+  // snow cap
+  const capH = peakHeight * 0.25;
+  const capR = baseRadius * 0.3;
+  const cap = new THREE.Mesh(
+    new THREE.ConeGeometry(capR, capH, 8), materials.snow
+  );
+  cap.position.y = GROUND_Y + peakHeight - capH * 0.3;
+  cap.castShadow = true;
+  mountain.add(cap);
+  return mountain;
+}
+
+function createTree(scale = 1) {
+  const tree = new THREE.Group();
+
+  // tapered trunk
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08 * scale, 0.15 * scale, 1.4 * scale, 8),
+    materials.bark
+  );
+  trunk.position.y = GROUND_Y + 0.7 * scale;
+  trunk.castShadow = true;
+  tree.add(trunk);
+
+  // canopy: 2–3 overlapping spheres
+  const count = 2 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < count; i++) {
+    const r = (0.5 + Math.random() * 0.25) * scale;
+    const ox = (Math.random() - 0.5) * 0.3 * scale;
+    const oz = (Math.random() - 0.5) * 0.3 * scale;
+    const oy = GROUND_Y + 1.4 * scale + i * 0.25 * scale;
+    const leaf = new THREE.Mesh(
+      new THREE.SphereGeometry(r, 8, 8), materials.foliage
+    );
+    leaf.position.set(ox, oy, oz);
+    leaf.castShadow = true;
+    leaf.receiveShadow = true;
+    tree.add(leaf);
+  }
+
+  return tree;
+}
+
 export {
-  materials, GROUND_Y,
+  materials, GROUND_Y, getTerrainHeight,
   createWindmill, createMountedKnight, createCastle, createVillage,
+  createTree, createHill, createMountain, buildVillager,
 };

@@ -16,8 +16,11 @@ SCENE LAYOUT:
 PRE-EXISTING OBJECTS (already registered, use getObject to modify or removeObject to delete):
 - "windmill" — windmill at origin with rotating blades
 - "castle" — castle with moat at (-10, 0, 5)
-- "village-1" through "village-6" — villages scattered around the scene
+- "village-1" through "village-14" — villages densely scattered around the scene
 - "knight" — mounted knight on boar at (1.5, 0, 3.5)
+- "tree-1" through "tree-45" — low-poly trees throughout the landscape
+- "hill-1" through "hill-8" — gentle hills across the terrain
+- "mountain-1" through "mountain-5" — snow-capped mountains at scene edges
 
 AVAILABLE API (all in scope, no imports needed):
 - THREE — the full Three.js namespace
