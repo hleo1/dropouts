@@ -3,11 +3,8 @@ import * as THREE from "three";
 // --- Tunable constants ---
 const ORBIT_SENSITIVITY_X = 3.0;   // theta (horizontal) sensitivity
 const ORBIT_SENSITIVITY_Y = 2.0;   // phi (vertical) sensitivity
-const ZOOM_SENSITIVITY = 15.0;
+const TWO_HAND_ZOOM_SENSITIVITY = 8.0;
 const SMOOTHING = 0.3;             // exponential smoothing (0 = no smoothing, 1 = frozen)
-
-const PINCH_ENTER = 0.06;          // distance to enter pinch/zoom mode
-const PINCH_EXIT = 0.09;           // distance to exit pinch/zoom mode
 
 const PHI_MIN = 0.1;
 const PHI_MAX = Math.PI - 0.1;
@@ -15,8 +12,28 @@ const RADIUS_MIN = 2;
 const RADIUS_MAX = 40;
 
 const WRIST = 0;
-const THUMB_TIP = 4;
-const INDEX_TIP = 8;
+// fingertip → PIP (second knuckle) pairs for curl detection
+const FINGER_TIP_PIP = [
+  [8, 6],   // index
+  [12, 10], // middle
+  [16, 14], // ring
+  [20, 18], // pinky
+];
+
+function isFist(landmarks) {
+  const wrist = landmarks[WRIST];
+  // a finger is curled if its tip is closer to the wrist than its PIP joint
+  let curledCount = 0;
+  for (const [tipIdx, pipIdx] of FINGER_TIP_PIP) {
+    const tip = landmarks[tipIdx];
+    const pip = landmarks[pipIdx];
+    const tipDist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+    const pipDist = Math.hypot(pip.x - wrist.x, pip.y - wrist.y);
+    if (tipDist < pipDist) curledCount++;
+  }
+  // fist if at least 3 of 4 fingers are curled (forgiving for pinky)
+  return curledCount >= 3;
+}
 
 export function createHandCameraController(camera, target = new THREE.Vector3()) {
   let theta = Math.PI / 2;   // azimuth
@@ -25,8 +42,7 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
 
   let prevWristX = null;
   let prevWristY = null;
-  let prevPinchDist = null;
-  let isPinching = false;
+  let prevHandDist = null;
 
   let smoothDx = 0;
   let smoothDy = 0;
@@ -43,47 +59,47 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
   // set initial camera position
   updateCameraPosition();
 
-  function update(landmarks) {
-    if (!landmarks || landmarks.length === 0) {
-      // hand disappeared — reset previous so we skip delta on reappearance
+  function update(allLandmarks) {
+    if (!allLandmarks || allLandmarks.length === 0) {
       prevWristX = null;
       prevWristY = null;
-      prevPinchDist = null;
+      prevHandDist = null;
       return;
     }
 
-    const wrist = landmarks[WRIST];
-    const thumbTip = landmarks[THUMB_TIP];
-    const indexTip = landmarks[INDEX_TIP];
-
-    // pinch distance (2D in normalised coords)
-    const dx = thumbTip.x - indexTip.x;
-    const dy = thumbTip.y - indexTip.y;
-    const pinchDist = Math.sqrt(dx * dx + dy * dy);
-
-    // hysteresis for pinch detection
-    if (!isPinching && pinchDist < PINCH_ENTER) {
-      isPinching = true;
-      prevPinchDist = null; // reset so we skip first-frame jump
-    } else if (isPinching && pinchDist > PINCH_EXIT) {
-      isPinching = false;
-      prevWristX = null; // reset orbit tracking on mode switch
+    // both fists → treat as no hands (full stop)
+    const allFists = allLandmarks.every((lm) => isFist(lm));
+    if (allFists) {
+      prevWristX = null;
       prevWristY = null;
+      prevHandDist = null;
+      return;
     }
 
-    if (isPinching) {
-      // --- ZOOM mode ---
-      if (prevPinchDist !== null) {
-        const delta = pinchDist - prevPinchDist;
-        radius -= delta * ZOOM_SENSITIVITY;
+    if (allLandmarks.length >= 2) {
+      // --- TWO-HAND ZOOM mode ---
+      const wristA = allLandmarks[0][WRIST];
+      const wristB = allLandmarks[1][WRIST];
+
+      const dx = wristA.x - wristB.x;
+      const dy = wristA.y - wristB.y;
+      const handDist = Math.sqrt(dx * dx + dy * dy);
+
+      if (prevHandDist !== null) {
+        const delta = handDist - prevHandDist;
+        // hands moving apart → zoom in (decrease radius)
+        radius -= delta * TWO_HAND_ZOOM_SENSITIVITY;
         radius = THREE.MathUtils.clamp(radius, RADIUS_MIN, RADIUS_MAX);
       }
-      prevPinchDist = pinchDist;
-      // reset orbit previous so we skip delta when switching back
+      prevHandDist = handDist;
+
+      // reset orbit tracking so we skip a jump when going back to one hand
       prevWristX = null;
       prevWristY = null;
     } else {
-      // --- ORBIT mode (open hand) ---
+      // --- SINGLE-HAND ORBIT mode ---
+      const wrist = allLandmarks[0][WRIST];
+
       if (prevWristX !== null && prevWristY !== null) {
         const rawDx = wrist.x - prevWristX;
         const rawDy = wrist.y - prevWristY;
@@ -97,7 +113,7 @@ export function createHandCameraController(camera, target = new THREE.Vector3())
       }
       prevWristX = wrist.x;
       prevWristY = wrist.y;
-      prevPinchDist = null;
+      prevHandDist = null;
     }
 
     updateCameraPosition();
