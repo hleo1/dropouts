@@ -54,7 +54,7 @@ To avoid merge conflicts when multiple people are working simultaneously:
 | `index.js` | Scene setup + animation loop | The glue layer. Keep it thin — delegate logic to modules. |
 | `handCameraControl.js` | All gesture interpretation + camera math | Owns gesture detectors (fist, finger-gun, thumb-tap) and camera orbit/zoom. |
 | `getVisionStuff.js` | MediaPipe config + webcam access | Rarely needs changes. If adding new models, add here. |
-| `getBodies.js` | Scene object generation | Add new object types here. Keep pure (returns mesh, no side effects). |
+| `getBodies.js` | Scene object generation + shared materials | Add new object types here. Keep pure (returns mesh, no side effects). Use `materials` palette for consistent look. |
 | `index.html` | DOM structure + importmap | Update importmap when adding/upgrading CDN dependencies. |
 | `sceneContext.js` | Scene API for generated code | Object registry + animation system. Helpers return meshes but don't add to scene. |
 | `codeExecutor.js` | Code sandboxing | Runs generated JS with scene API params. No window/document/fetch access. |
@@ -98,6 +98,24 @@ Then open http://localhost:3000 in a browser with webcam access. Set your Anthro
 - **Background:** Gradient blue sky via `CanvasTexture`
 - **Blocks:** 40 earthy-toned `MeshLambertMaterial` boxes with edge wireframes, cast/receive shadows
 - **Agent objects** are tracked in a `Map<name, Object3D>` in `sceneContext.js`. `clearAll()` only removes agent-created objects, not original scene objects.
+
+## Scene Object Style
+
+All scene objects should use `MeshStandardMaterial` (not `MeshLambertMaterial`) to work with the ACES tone mapping. A shared `materials` palette is exported from `getBodies.js`:
+
+| Key | Use | Color |
+|-----|-----|-------|
+| `stone` | Foundations, walls | Gray, rough |
+| `wood` | Main structural bodies | Warm brown |
+| `darkWood` | Frames, trim, accents | Dark brown |
+| `roof` | Roof surfaces | Slate brown |
+| `sail` | Cloth, fabric (double-sided) | Off-white |
+| `door` | Doors, hatches | Very dark brown |
+| `glass` | Windows, translucent surfaces | Light blue, smooth |
+
+Import and reuse these when creating new objects: `import { materials } from "./getBodies.js"`. Add new entries to the palette if a new object needs a material that doesn't fit any existing one.
+
+All meshes should set `castShadow` and/or `receiveShadow` as appropriate. Use `GROUND_Y` (also exported from `getBodies.js`) for vertical positioning.
 
 ## Common Pitfalls
 
