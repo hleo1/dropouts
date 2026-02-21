@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { getBlock } from "./getBodies.js";
 import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController, isFingerGun, createThumbTapDetector } from "./handCameraControl.js";
 import { initSceneContext, tickAnimations } from "./sceneContext.js";
 import { initChatUI } from "./chatUI.js";
+import { createWindmill, createMountedKnight, createCastle, createVillage } from "./getBodies.js";
 
 // init three.js scene
 const w = window.innerWidth;
@@ -57,10 +57,83 @@ pipVideo.srcObject = video.srcObject;
 const dotCanvas = document.getElementById("hand-dots");
 const dotCtx = dotCanvas.getContext("2d");
 
+// grass texture (procedural)
+const grassSize = 512;
+const grassCanvas = document.createElement("canvas");
+grassCanvas.width = grassSize;
+grassCanvas.height = grassSize;
+const grassCtx = grassCanvas.getContext("2d");
+grassCtx.fillStyle = "#4a6b2e";
+grassCtx.fillRect(0, 0, grassSize, grassSize);
+
+// organic color patches (soft radial splotches for macro variation)
+const patchColors = [
+  "rgba(74, 107, 46, 0.4)", "rgba(90, 124, 62, 0.3)",
+  "rgba(107, 141, 78, 0.3)", "rgba(61, 90, 34, 0.4)",
+  "rgba(100, 90, 50, 0.15)", "rgba(120, 140, 70, 0.2)",
+];
+for (let i = 0; i < 40; i++) {
+  const cx = Math.random() * grassSize;
+  const cy = Math.random() * grassSize;
+  const r = 30 + Math.random() * 80;
+  const grad = grassCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  grad.addColorStop(0, patchColors[Math.floor(Math.random() * patchColors.length)]);
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  grassCtx.fillStyle = grad;
+  grassCtx.fillRect(cx - r, cy - r, r * 2, r * 2);
+}
+
+// small dirt/earth patches
+for (let i = 0; i < 8; i++) {
+  const cx = Math.random() * grassSize;
+  const cy = Math.random() * grassSize;
+  const r = 10 + Math.random() * 25;
+  const grad = grassCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  grad.addColorStop(0, "rgba(110, 85, 55, 0.5)");
+  grad.addColorStop(0.6, "rgba(90, 75, 45, 0.3)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  grassCtx.fillStyle = grad;
+  grassCtx.fillRect(cx - r, cy - r, r * 2, r * 2);
+}
+
+// per-pixel micro noise
+const imgData = grassCtx.getImageData(0, 0, grassSize, grassSize);
+for (let i = 0; i < imgData.data.length; i += 4) {
+  const n = (Math.random() - 0.5) * 18;
+  imgData.data[i] = Math.max(0, Math.min(255, imgData.data[i] + n));
+  imgData.data[i + 1] = Math.max(0, Math.min(255, imgData.data[i + 1] + n));
+  imgData.data[i + 2] = Math.max(0, Math.min(255, imgData.data[i + 2] + n * 0.5));
+}
+grassCtx.putImageData(imgData, 0, 0);
+
+// dense curved grass blades
+const bladeColors = [
+  "#3d5a22", "#4a6b2e", "#5a7c3e", "#6b8d4e", "#7a9c5a",
+  "#526e30", "#445e28", "#8aac5a", "#3a5520",
+];
+for (let i = 0; i < 3000; i++) {
+  const bx = Math.random() * grassSize;
+  const by = Math.random() * grassSize;
+  const h = 4 + Math.random() * 10;
+  const lean = (Math.random() - 0.5) * 6;
+  grassCtx.strokeStyle = bladeColors[Math.floor(Math.random() * bladeColors.length)];
+  grassCtx.globalAlpha = 0.3 + Math.random() * 0.5;
+  grassCtx.lineWidth = 0.5 + Math.random() * 1.0;
+  grassCtx.beginPath();
+  grassCtx.moveTo(bx, by);
+  grassCtx.quadraticCurveTo(bx + lean * 0.6 + (Math.random() - 0.5) * 2, by - h * 0.6, bx + lean, by - h);
+  grassCtx.stroke();
+}
+grassCtx.globalAlpha = 1;
+const grassTexture = new THREE.CanvasTexture(grassCanvas);
+grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
+grassTexture.repeat.set(20, 20);
+
 // ground plane
 const groundGeo = new THREE.PlaneGeometry(80, 80, 32, 32);
-const groundMat = new THREE.MeshLambertMaterial({
-  color: 0x9c6b3a,
+const groundMat = new THREE.MeshStandardMaterial({
+  map: grassTexture,
+  roughness: 0.9,
   side: THREE.DoubleSide,
 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
@@ -72,6 +145,32 @@ scene.add(ground);
 const gridHelper = new THREE.GridHelper(60, 40, 0x7a5a3a, 0x5c4428);
 gridHelper.position.y = -4.99;
 scene.add(gridHelper);
+
+// windmill at origin
+const windmill = createWindmill();
+scene.add(windmill);
+
+// castle with moat (bottom-left from default camera)
+const castle = createCastle();
+castle.position.set(-10, 0, 5);
+castle.rotation.y = 0.4;
+scene.add(castle);
+
+// villages scattered around the scene
+const villageSpots = [
+  [10, -8], [-8, -10], [12, 7], [-14, -4], [5, 12], [-3, -12],
+];
+for (const [vx, vz] of villageSpots) {
+  const v = createVillage(3 + Math.floor(Math.random() * 3), 4 + Math.floor(Math.random() * 4));
+  v.position.set(vx, 0, vz);
+  scene.add(v);
+}
+
+// knight on boar-back in front of windmill
+const knight = createMountedKnight();
+knight.position.set(1.5, 0, 3.5);
+knight.rotation.y = 0.3;
+scene.add(knight);
 
 // hand-driven camera controller
 const cameraController = createHandCameraController(camera);
@@ -100,14 +199,7 @@ initSceneContext(scene, camera);
 initChatUI();
 const clock = new THREE.Clock();
 
-// static blocks on the ground
-const blockMeshes = [];
-const numBlocks = 40;
-for (let i = 0; i < numBlocks; i++) {
-  const block = getBlock();
-  scene.add(block.mesh);
-  blockMeshes.push(block.mesh);
-}
+
 
 function drawAllHands(handResults) {
   dotCanvas.width = dotCanvas.clientWidth;
@@ -190,7 +282,7 @@ function animate() {
             -(smoothCursorY / window.innerHeight) * 2 + 1
           );
           raycaster.setFromCamera(ndc, camera);
-          const hits = raycaster.intersectObjects(blockMeshes);
+          const hits = raycaster.intersectObjects(scene.children, true);
 
           if (selectedMesh) {
             selectedMesh.material.color.set(selectedOriginalColor);
@@ -227,6 +319,7 @@ function animate() {
   }
 
   tickAnimations(clock.getDelta());
+  windmill.userData.blades.rotation.z += 0.02;
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(animate);
