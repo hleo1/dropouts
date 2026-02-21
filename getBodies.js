@@ -27,4 +27,18 @@ function getBlock() {
   return { mesh };
 }
 
-export { getBlock };
+function createRedBox(position) {
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshBasicMaterial({ color: 0xff2222, opacity: 0.9, transparent: true });
+  const mesh = new THREE.Mesh(geometry, material);
+
+  const edges = new THREE.EdgesGeometry(geometry);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x880000 });
+  const wireframe = new THREE.LineSegments(edges, lineMat);
+  mesh.add(wireframe);
+
+  mesh.position.copy(position);
+  return { mesh };
+}
+
+export { getBlock, createRedBox };
