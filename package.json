@@ -1,0 +1,8 @@
+{
+  "name": "physics-gestures",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve . -p 3000"
+  }
+}
