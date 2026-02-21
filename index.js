@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { getBlock } from "./getBodies.js";
 import { getVisionStuff } from "./getVisionStuff.js";
 import { createHandCameraController, isFingerGun, createThumbTapDetector } from "./handCameraControl.js";
+import { createHandCameraController } from "./handCameraControl.js";
+import { initSceneContext, tickAnimations } from "./sceneContext.js";
+import { initChatUI } from "./chatUI.js";
 
 // init three.js scene
 const w = window.innerWidth;
@@ -93,6 +96,10 @@ const FG_ENTER_FRAMES = 4;
 const FG_EXIT_FRAMES = 6;
 let fgConsecutive = 0;
 let inFingerGunMode = false;
+// scene API for LLM agent
+initSceneContext(scene, camera);
+initChatUI();
+const clock = new THREE.Clock();
 
 // static blocks on the ground
 const blockMeshes = [];
@@ -219,6 +226,7 @@ function animate() {
     }
   }
 
+  tickAnimations(clock.getDelta());
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(animate);
