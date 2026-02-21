@@ -32,6 +32,36 @@
         border-radius: 12px;
         pointer-events: none;
       }
+      #crosshair {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 24px;
+        height: 24px;
+        pointer-events: none;
+        z-index: 20;
+      }
+      #crosshair::before,
+      #crosshair::after {
+        content: '';
+        position: absolute;
+        background: rgba(255, 255, 255, 0.85);
+      }
+      #crosshair::before {
+        width: 100%;
+        height: 2px;
+        top: 50%;
+        left: 0;
+        transform: translateY(-50%);
+      }
+      #crosshair::after {
+        width: 2px;
+        height: 100%;
+        left: 50%;
+        top: 0;
+        transform: translateX(-50%);
+      }
     </style>
     <script type="importmap">
       {
@@ -44,6 +74,7 @@
     </script>
   </head>
   <body>
+    <div id="crosshair"></div>
     <div id="pip-container">
       <video id="webcam-pip" autoplay playsinline muted></video>
       <canvas id="hand-dots"></canvas>
