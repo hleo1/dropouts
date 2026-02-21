@@ -1,7 +1,8 @@
 import * as THREE from "three";
-import { getBlock } from "./getBodies.js";
+import { getBlock, createRedBox } from "./getBodies.js";
 import getVisionStuff from "./getVisionStuff.js";
 import { createHandCameraController } from "./handCameraControl.js";
+import { FlickDetector } from "./gestures.js";
 
 // init three.js scene
 const w = window.innerWidth;
@@ -44,12 +45,44 @@ scene.add(gridHelper);
 // hand-driven camera controller
 const cameraController = createHandCameraController(camera);
 
-// static blocks on the ground
+// All raycastable meshes — static blocks + user-placed red boxes
+const raycastTargets = [];
+
 const numBlocks = 40;
 for (let i = 0; i < numBlocks; i++) {
   const block = getBlock();
   scene.add(block.mesh);
+  raycastTargets.push(block.mesh);
 }
+
+// Center-screen raycaster
+const raycaster = new THREE.Raycaster();
+const CENTER_NDC = new THREE.Vector2(0, 0);
+
+// Highlight state
+let highlightedMesh = null;
+let highlightedOriginalColor = null;
+
+function setHighlight(mesh) {
+  if (highlightedMesh && highlightedMesh !== mesh) {
+    highlightedMesh.material.color.setHex(highlightedOriginalColor);
+    highlightedMesh = null;
+  }
+  if (mesh && mesh !== highlightedMesh) {
+    highlightedOriginalColor = mesh.material.color.getHex();
+    mesh.material.color.setHex(0xffdd00);
+    highlightedMesh = mesh;
+  }
+}
+
+function clearHighlight() {
+  if (highlightedMesh) {
+    highlightedMesh.material.color.setHex(highlightedOriginalColor);
+    highlightedMesh = null;
+  }
+}
+
+const flickDetector = new FlickDetector({ velocityThreshold: 0.04, cooldownMs: 800 });
 
 function drawHandDots(landmarks) {
   dotCanvas.width = dotCanvas.clientWidth;
@@ -70,17 +103,44 @@ function drawHandDots(landmarks) {
 }
 
 function animate() {
+  let currentLandmarks = null;
+
   // hand-tracking → camera control + dots
   if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
     const handResults = handLandmarker.detectForVideo(video, Date.now());
 
     if (handResults.landmarks.length > 0) {
-      cameraController.update(handResults.landmarks[0]);
-      drawHandDots(handResults.landmarks[0]);
+      currentLandmarks = handResults.landmarks[0];
+      cameraController.update(currentLandmarks);
+      drawHandDots(currentLandmarks);
     } else {
       cameraController.update(null);
       drawHandDots(null);
     }
+  }
+
+  // Center-screen raycast
+  raycaster.setFromCamera(CENTER_NDC, camera);
+  const intersects = raycaster.intersectObjects(raycastTargets, false);
+
+  if (intersects.length > 0) {
+    const hit = intersects[0];
+    setHighlight(hit.object);
+
+    if (currentLandmarks) {
+      if (flickDetector.check(currentLandmarks)) {
+        // Offset box by 0.5 along surface normal so it sits on top of the hit surface
+        const worldNormal = hit.face.normal.clone()
+          .applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld))
+          .normalize();
+        const placementPoint = hit.point.clone().add(worldNormal.multiplyScalar(0.5));
+        const redBox = createRedBox(placementPoint);
+        scene.add(redBox.mesh);
+        raycastTargets.push(redBox.mesh);
+      }
+    }
+  } else {
+    clearHighlight();
   }
 
   renderer.render(scene, camera);
